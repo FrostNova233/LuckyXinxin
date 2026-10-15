@@ -14,7 +14,7 @@ node scripts/serve.cjs
 
 ## GitHub Pages 部署
 
-1. 将此目录文件提交到你选择的 GitHub 仓库，包括 `.nojekyll` 和 `assets`。
+1. 将此目录文件提交到你选择的 GitHub 仓库，包括 `.nojekyll`、页面、脚本和样式文件。当前页面图标与雨滴均已内嵌，不依赖 `assets` 文件夹。
 2. 在仓库 **Settings → Pages → Build and deployment** 中，选择 **Deploy from a branch**。
 3. 选择 `main` 分支和 `/ (root)`，保存。若使用其他分支，选择实际提交代码的分支。
 4. 等待 Pages 部署完成，打开设置页显示的网址。项目站通常是 `https://用户名.github.io/仓库名/`。
@@ -69,3 +69,5 @@ node scripts/serve.cjs
 自动化浏览器检查脚本见 `tests/browser.cjs`，需外部提供 Playwright（不作为网页运行依赖）。运行方式见脚本头部。
 
 浏览器可使用 Playwright 安装的 Chromium，或通过 `BROWSER_EXECUTABLE` 指定已有 Chromium / Edge 的可执行文件。检查会临时启动本地服务，将截图写入已忽略的 `test-results/`，不会修改内容配置。
+
+手机图标使用内嵌 SVG 路径，避免星形、信封、雨伞、箭头被系统字体显示成 Emoji。雨滴和弹窗雨滴同样内嵌，网站图标采用 SVG data URL，不需要额外的图片请求。

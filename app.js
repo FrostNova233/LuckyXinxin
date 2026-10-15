@@ -144,7 +144,13 @@
           particle.style.setProperty('--turn', `${90 + i * 23}deg`);
           particle.style.backgroundColor = ['#e4b191', '#d1bca1', '#d6b0a5', '#b6c09c'][i % 4];
         } else {
-          particle.textContent = '♡';
+          const heart = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          heart.setAttribute('viewBox', '0 0 24 24'); heart.setAttribute('class', 'ui-icon');
+          heart.setAttribute('aria-hidden', 'true'); heart.setAttribute('focusable', 'false');
+          const outline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          outline.setAttribute('d', 'M12 21S2 15 2 8a5 5 0 0 1 10-1 5 5 0 0 1 10 1c0 7-10 13-10 13Z');
+          outline.setAttribute('fill', 'none'); outline.setAttribute('stroke', 'currentColor'); outline.setAttribute('stroke-width', '1.5');
+          heart.append(outline); particle.append(heart);
           particle.style.left = `${bounds.left + bounds.width / 2}px`;
           particle.style.top = `${bounds.top + bounds.height / 2}px`;
           particle.style.setProperty('--drift', `${(i - 2) * 22}px`);

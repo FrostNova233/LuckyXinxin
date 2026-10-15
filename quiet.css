@@ -1,0 +1,32 @@
+.quiet-scene{width:min(100%,290px);margin:0 auto 10px;line-height:0;--sky:#dbe5de;--hill:#b8c7b5}
+.quiet-scene svg{width:100%;height:auto;overflow:visible}
+.weather-sky{fill:var(--sky)}.weather-hill{fill:var(--hill)}
+.weather-sky,.weather-hill,.weather-sun,.weather-cloud,.weather-rain,.weather-light{transition:opacity 1s ease,fill 1s ease}
+.weather-sun,.weather-light{opacity:0}
+.weather-cloud{transform-box:fill-box;transform-origin:center;animation:quiet-cloud-drift 17s ease-in-out infinite alternate}
+.cloud-two{animation-duration:22s;animation-delay:-7s}
+.weather-rain line{animation:quiet-rain-fall 3.8s linear infinite}
+.quiet-scene[data-weather="cloudy"]{--sky:#e4e8df;--hill:#becbb6}
+.quiet-scene[data-weather="cloudy"] .weather-rain,.quiet-scene[data-weather="sunny"] .weather-rain{opacity:0}
+.quiet-scene[data-weather="sunny"]{--sky:#f1eddc;--hill:#bdc8a6}
+.quiet-scene[data-weather="sunny"] .weather-sun{opacity:1}
+.quiet-scene[data-weather="sunny"] .weather-light{opacity:.27}
+.quiet-scene[data-weather="sunny"] .cloud-one{opacity:.3}
+.quiet-scene[data-weather="sunny"] .cloud-two{opacity:.55}
+.quiet-scene:not([data-weather="rain"]) .weather-rain line{animation-play-state:paused}
+.quiet-scene.is-still *{transition:none!important}
+.quiet-scene.is-still .weather-cloud,.quiet-scene.is-still .weather-rain line,.quiet-scene.is-inactive .weather-cloud,.quiet-scene.is-inactive .weather-rain line{animation-play-state:paused}
+.quiet-scene.is-still .weather-rain{visibility:hidden}
+.weather-controls{display:flex;justify-content:center;gap:8px;margin:23px 0 2px}
+.weather-button{min-width:76px;min-height:44px;padding:8px 15px;border-radius:6px;background:transparent;border:1px solid #c5cbbb;color:#57654e;font-size:13px;transition:background-color .2s}
+.weather-button[aria-pressed="true"]{background:#e2e7d7;border-color:#87977c;color:#394b34;box-shadow:inset 0 -2px 0 #87977c}
+.quiet-motion{font-size:12px;min-height:44px;margin-top:5px;color:#65715b}
+.quiet-motion:disabled{opacity:1;cursor:default;color:#717865}
+.quiet-storage-status{font-size:11px;color:#6c7365;line-height:1.7;margin:0}
+.quiet-storage-status:empty{display:none}
+.quiet-content .quiet-copy{font-size:16px;line-height:1.9;margin:8px 0 0}
+.quiet-content #quiet-note{margin:0 0 4px}
+@keyframes quiet-cloud-drift{from{transform:translateX(-5px)}to{transform:translateX(9px)}}
+@keyframes quiet-rain-fall{from{transform:translate(0,-160px)}to{transform:translate(-32px,120px)}}
+@media(max-width:620px){.quiet-content .quiet-copy{font-size:14px}.weather-controls{margin-top:18px}.weather-button{min-width:70px}.quiet-scene{margin-top:5px}}
+@media(prefers-reduced-motion:reduce){.quiet-scene *{animation:none!important;transition:none!important}.quiet-scene .weather-rain{visibility:hidden}.weather-button{transition:none}}

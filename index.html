@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f3e9">
+  <meta name="description" content="给馨馨留的一个小空间。拆张纸条，放下烦心事，或者安静待一会儿。">
+  <meta name="robots" content="noindex, nofollow">
+  <title>馨馨的小盒子</title>
+  <link rel="icon" href="./assets/raindrop.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./interactions.css">
+  <link rel="stylesheet" href="./quiet.css">
+  <script defer src="./content.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <div class="site-shell">
+    <header class="site-header">
+      <div class="wordmark"><span class="brand-box" aria-hidden="true">✳</span> 一个小盒子<span class="wordmark-en">A LITTLE SOFT SPOT</span></div>
+      <button class="text-button collection-link" id="open-collection">收藏的小纸条 <span aria-hidden="true">↗</span></button>
+    </header>
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="little-line"></span> 给<span data-nickname>馨馨</span>留的一个小地方</p>
+          <h1 id="hero-title"><span data-nickname>馨馨</span>，<br>来这里<span class="title-soft">歇一会儿。</span></h1>
+          <p class="intro">外面的事，先放一放。<br>这里不用很厉害，也不用马上开心。</p>
+          <p class="handwritten hero-note">随时来坐坐，不用带好心情来 <span aria-hidden="true">↘</span></p>
+        </div>
+        <div class="hero-art">
+          <span class="art-label">一些小小的、接住你的东西</span>
+          <div class="art-stage" id="art-stage" role="group" aria-label="小盒子里的小东西">
+            <svg class="box-art" viewBox="0 0 560 420" fill="none" aria-hidden="true">
+              <defs><pattern id="hero-box-lines" width="7" height="7" patternUnits="userSpaceOnUse"><path d="M0 7 7 0" stroke="#a18b65" stroke-opacity=".12"/></pattern></defs>
+              <g id="box-shadow" stroke="#625c47" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><ellipse stroke="none" cx="285" cy="369" rx="181" ry="16" fill="#e9e3d6"/><path d="M72 349c25-3 41 7 64 2m291 13 54-7" stroke="#bcb3a1" stroke-width="1.5" stroke-linecap="round"/></g>
+              <g class="art-box-base"><g id="box-base" stroke="#625c47" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m126 213 150-45 154 48-144 63Z" fill="#a6aa82"/><path d="m126 213 10 123 150 49V279Z" fill="#c2c39e"/><path d="m286 279 144-63-9 121-135 48Z" fill="#a8ae85"/><path d="m126 213 10 123 150 49V279Z" fill="url(#hero-box-lines)"/><path d="m286 279 144-63-9 121-135 48Z" fill="url(#hero-box-lines)"/></g></g>
+              <g class="art-lids"><g id="box-lids" stroke="#625c47" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m126 213-42 39 151 52 51-25Z" fill="#dbd9b8"/><path d="m286 279 45 28 142-61-43-30Z" fill="#d2d3af"/><path d="m126 213 150-45-16-38-151 42Z" fill="#cdd0ac"/><path d="m276 168 154 48 32-40-156-48Z" fill="#d9dbbb"/></g></g>
+              <g class="art-letter"><g id="box-letter" stroke="#625c47" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><g transform="rotate(-15 233 179)"><path d="M171 113h120v114H171z" fill="#fffaf0"/><path d="M188 137h67m-67 12h82m-82 12h59" stroke="#c6bda9"/><path d="m215 184 8 8 16-19" stroke="#7f906d" stroke-width="3"/></g><g transform="rotate(13 323 197)"><rect x="261" y="151" width="130" height="87" rx="3" fill="#edc5ac"/><path d="m263 154 63 46 62-46m-125 79 46-42m79 42-47-42" stroke="#ad816b"/></g></g></g>
+              <g class="art-flower"><g id="box-flower" stroke="#625c47" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M358 161c-1-34 4-56 21-82m-18 63c-24-2-26-18-25-28 18 5 24 14 25 28Zm8-30c17 0 26-9 27-21-19 0-26 11-27 21Z" fill="#a3ad83"/><path d="M376 83c-18 4-22-10-15-17-12-6-6-22 5-19 0-15 18-18 23-6 12-8 23 6 14 16 15 5 12 23-2 24-1 14-18 17-25 2Z" fill="#e7b085"/><circle cx="383" cy="65" r="9" fill="#bc865b"/></g></g>
+              <g class="art-heart"><g id="box-heart" stroke="#625c47" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M454 104c9-10 26-5 22 6-4 10-15 16-15 16s-18-6-18-15c0-5 6-8 11-7Z" fill="#ddb49f" stroke="#ae8d79"/></g></g>
+              <g id="box-details" stroke="#625c47" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m173 321 58 17-1 24-58-18Z" fill="#f5efd8"/><path d="m188 340 25 7" stroke="#8e8c6d"/><path d="m190 72 3 10m-18-4 9 7m20-16-4 10" stroke="#bd8b62"/><path d="m441 289 5 8m-1-16 10 1m-18 21-1 8" stroke="#bd8b62"/><path d="M92 130c-12 11-16 22-7 27 9 4 13-7 10-15" stroke="#9caa94"/></g>
+              <g class="packed-lid"><path d="m127 215 149-45 153 47-143 62Z" fill="#d2d3af" stroke="#625c47" stroke-width="2.2"/><path d="m201 192 150 60m-3-61-146 59" stroke="#a89575" stroke-width="12" opacity=".65"/><rect x="231" y="213" width="113" height="29" rx="3" fill="#fff8e7" stroke="#918a6d"/><text id="package-label" x="287" y="233" text-anchor="middle" fill="#58684f" font-size="14" font-family="serif"></text></g>
+              <g class="paper-plane"><path d="m244 173 113-28-57 69-12-29Z" fill="#fff9e9" stroke="#6f775e" stroke-width="2"/><path d="m288 185 69-40-57 69-3-24m-9-5 9 5" stroke="#6f775e" stroke-width="2"/></g>
+            </svg>
+            <button class="art-hotspot hotspot-box" data-art="box" aria-label="把美好打包"><span class="sr-only">盒子</span></button>
+            <button class="art-hotspot hotspot-letter" data-art="letter" aria-label="寄出一架纸飞机"><span class="sr-only">信封和信纸</span></button>
+            <button class="art-hotspot hotspot-flower" data-art="flower" aria-label="让花瓣飘一会儿"><span class="sr-only">花</span></button>
+            <button class="art-hotspot hotspot-heart" data-art="heart" aria-label="看看这颗小爱心"><span class="sr-only">爱心</span></button>
+          </div>
+          <button class="rain-secret" id="open-secret" aria-label="看看这颗小雨滴"><img src="./assets/raindrop.svg" alt="" width="32" height="40"></button>
+          <span class="art-caption handwritten">不着急，慢慢打开就好。</span>
+          <p id="art-hint" class="art-hint"></p>
+          <p id="art-message" class="art-message" role="status" aria-live="polite" aria-atomic="true"></p>
+        </div>
+      </section>
+      <section class="choices" aria-label="想怎样待一会儿">
+        <button class="choice choice-note" data-open="note-dialog"><span class="choice-top"><span class="choice-icon" aria-hidden="true">✉</span><span class="choice-number">01 / A LITTLE NOTE</span></span><span class="choice-title">拆张纸条 <span class="choice-arrow" aria-hidden="true">↗</span></span><span class="choice-description">有几句话，想留给现在的你。</span><span class="choice-bottom">不用挑，随手拆一张就好</span></button>
+        <button class="choice choice-vent" data-open="vent-dialog"><span class="choice-top"><span class="choice-icon" aria-hidden="true">⌁</span><span class="choice-number">02 / LET IT GO</span></span><span class="choice-title">放下烦心事 <span class="choice-arrow" aria-hidden="true">↗</span></span><span class="choice-description">装不下的，就先放进这个盒子。</span><span class="choice-bottom">写一点，或者什么也不写</span></button>
+        <button class="choice choice-quiet" data-open="quiet-dialog"><span class="choice-top"><span class="choice-icon" aria-hidden="true">☂</span><span class="choice-number">03 / JUST BE HERE</span></span><span class="choice-title">安静待会儿 <span class="choice-arrow" aria-hidden="true">↗</span></span><span class="choice-description" id="quiet-entry"></span><span class="choice-bottom">没有任务，也没有倒计时</span></button>
+      </section>
+      <section id="future-section" class="future-section" hidden><span aria-hidden="true">✉</span><div><h2>留给以后的小信</h2><p>有些话，留到合适的时候再打开。</p></div><button class="text-button" id="open-future">去看看 ↗</button></section>
+      <div class="closing-note"><span aria-hidden="true">✳</span><p>今天就算什么也没完成，<br class="mobile-break">也可以在这里待一会儿。</p></div>
+    </main>
+    <footer><span id="footer-note"></span><button class="text-button" data-open="privacy-dialog">关于这个小地方 <span aria-hidden="true">↗</span></button></footer>
+  </div>
+
+  <dialog id="note-dialog" aria-labelledby="note-title"><div class="dialog-content"><button class="close" aria-label="关闭" data-close>×</button><p class="eyebrow">A LITTLE NOTE FOR YOU</p><h2 id="note-title"></h2>
+    <div id="note-picker"><p id="picker-hint" class="dialog-intro"></p><div class="picker-scene"><div class="picker-box-back" aria-hidden="true"></div><div class="picker-papers" role="group" aria-label="挑一张纸条"><button class="pick-paper" aria-label="第一张"><span aria-hidden="true">✳</span></button><button class="pick-paper" aria-label="第二张"><span aria-hidden="true">✳</span></button><button class="pick-paper" aria-label="第三张"><span aria-hidden="true">✳</span></button></div><div class="picker-box-front" aria-hidden="true"><span>给<span data-nickname>馨馨</span></span></div></div></div>
+    <div id="note-reader" hidden><div class="paper-note"><span class="paper-star" aria-hidden="true">✳</span><p id="note-text" aria-live="polite"></p><span class="paper-sign">给<span data-nickname>馨馨</span> · 不用回复</span></div><div class="actions"><button class="primary" id="next-note">再拆一张 ↗</button><button class="secondary" id="save-note" aria-pressed="false">收藏这张</button><button class="text-button" id="back-to-picker">回盒子挑一张</button></div></div><p class="status" id="note-status" role="status"></p></div></dialog>
+  <dialog id="vent-dialog" aria-labelledby="vent-title"><div class="dialog-content"><button class="close" aria-label="关闭" data-close>×</button><p class="eyebrow">LEAVE A LITTLE WEIGHT HERE</p><h2 id="vent-title">这会儿，先放下来。</h2><p class="dialog-intro">不用整理语言，写到哪里都可以。</p><label class="sr-only" for="vent-text">想放下的烦心事</label><textarea id="vent-text" placeholder="今天有点烦的是……" maxlength="20000"></textarea><label class="checkbox-label"><input id="save-vent" type="checkbox"> 留给自己，下次还可以看看</label><p class="tiny">不勾选就不保存；勾选后只保存在当前浏览器，我看不到。</p><div class="actions"><button class="primary" id="throw-vent">放进盒子 ↓</button><button class="text-button" id="show-vents">看看留下的纸条</button></div><p id="vent-status" class="status" role="status"></p><section id="vent-history" hidden aria-label="留给自己的纸条"><div class="list-heading"><h3>留给自己的</h3><button id="clear-vents" class="text-button">清空这些纸条</button></div><div id="vent-list"></div><div id="clear-confirm" class="confirmation" hidden><p>确定清空所有树洞纸条吗？清空后无法恢复。</p><button class="secondary" id="cancel-clear">先留着</button> <button class="danger" id="confirm-clear">确认清空</button></div></section></div></dialog>
+  <dialog id="quiet-dialog" aria-labelledby="quiet-title"><div class="dialog-content quiet-content"><button class="close" aria-label="关闭" data-close>×</button><p class="eyebrow">NOWHERE ELSE TO BE</p><h2 id="quiet-title">就这样，待一会儿。</h2>
+    <div class="quiet-scene is-still is-inactive" id="quiet-scene" data-weather="rain" role="img" aria-labelledby="quiet-scene-description">
+      <span class="sr-only" id="quiet-scene-description"></span>
+      <svg viewBox="150 0 280 265" fill="none" aria-hidden="true">
+        <defs><clipPath id="quiet-window-clip"><path d="M182 230V128a110 110 0 0 1 220 0v102Z"/></clipPath></defs>
+        <g clip-path="url(#quiet-window-clip)">
+          <path class="weather-sky" d="M172 8h240v232H172z"/>
+          <circle class="weather-sun" cx="345" cy="77" r="28" fill="#f3dda2"/>
+          <g class="weather-cloud cloud-one"><path d="M192 99c-14-1-14-19 0-21-1-18 27-24 36-8 14-8 33 4 27 18 16 5 11 17-2 17h-60" fill="#b6c8c3"/></g>
+          <g class="weather-cloud cloud-two"><path d="M324 127c-10-3-8-18 4-18 4-17 27-18 34-3 16-6 30 6 24 19 15 3 12 17-2 17h-57c-13 0-17-12-3-15Z" fill="#c9d5cc"/></g>
+          <path class="weather-hill" d="M160 213c61-31 148-30 260-5v48H160Z"/>
+          <path d="M229 221c68-16 133-12 195 1v34H210Z" fill="#bcc7ad" opacity=".65"/>
+          <g class="weather-rain" id="weather-rain" stroke="#729c9b" stroke-width="1.8" stroke-linecap="round"></g>
+        </g>
+        <g stroke="#75836a" stroke-width="4" stroke-linejoin="round"><path d="M182 230V128a110 110 0 0 1 220 0v102Z"/><path d="M292 19v211m-109-82h218"/></g>
+        <path d="M174 234h236" stroke="#a5af94" stroke-width="10" stroke-linecap="round"/>
+        <path d="M181 241h222" stroke="#c1c6ac" stroke-width="3" stroke-linecap="round"/>
+        <path class="weather-light" d="m294 229 108 1 8 12H279Z" fill="#efdaa6"/>
+        <!-- A small plant sits on the indoor sill; the view stays open. -->
+        <g class="sill-plant" stroke="#748267" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M235 213c-2-22 0-37 8-56m-9 35c-10-7-15-15-18-25m19 36c11-6 17-14 21-23"/>
+          <path d="M239 173c-4-12-1-20 9-26 4 12 0 20-9 26Z" fill="#a1af88"/>
+          <path d="M234 186c-12 0-20-7-22-18 13 1 20 7 22 18Z" fill="#b2bd97"/>
+          <path d="M238 190c1-12 8-19 20-20-2 12-9 18-20 20Z" fill="#98aa84"/>
+          <path d="M235 201c-10 0-16-5-18-14 11 0 17 5 18 14Z" fill="#9fae89"/>
+          <path d="M242 204c2-9 8-14 18-14-3 10-9 14-18 14Z" fill="#b5be9e"/>
+          <path d="m217 212 5 21c7 3 18 3 25 0l5-21Z" fill="#d4b69c" stroke="#a48e73"/>
+          <path d="M216 211h37v5h-37Z" fill="#e3c8ad" stroke="#a48e73"/>
+          <path d="m224 221 2 8" stroke="#ead3ba"/>
+        </g>
+      </svg>
+    </div>
+    <p class="quiet-copy" id="quiet-copy"></p>
+    <div class="weather-controls" role="group" aria-label="选择窗外的天气"><button class="weather-button" data-weather="rain" aria-pressed="true"></button><button class="weather-button" data-weather="cloudy" aria-pressed="false"></button><button class="weather-button" data-weather="sunny" aria-pressed="false"></button></div>
+    <button class="text-button quiet-motion" id="toggle-rain" aria-pressed="false"></button>
+    <p id="quiet-storage-status" class="quiet-storage-status" role="status"></p><p class="tiny" id="quiet-note"></p>
+  </div></dialog>
+  <dialog id="collection-dialog" aria-labelledby="collection-title"><div class="dialog-content"><button class="close" aria-label="关闭" data-close>×</button><p class="eyebrow">SOMETHING TO KEEP</p><h2 id="collection-title">收藏的小纸条</h2><p class="dialog-intro">想再听一次的话，就留在这里。</p><div id="collection-list"></div><p class="status" id="collection-status" role="status"></p></div></dialog>
+  <dialog id="secret-dialog" aria-labelledby="secret-title"><div class="dialog-content secret-content"><button class="close" aria-label="关闭" data-close>×</button><img src="./assets/raindrop.svg" alt="" width="44" height="55"><p class="eyebrow">YOU FOUND A LITTLE SECRET</p><h2 id="secret-title"></h2><p id="secret-text" class="secret-text"></p><p class="handwritten" id="secret-sign"></p></div></dialog>
+  <dialog id="future-dialog" aria-labelledby="future-title"><div class="dialog-content"><button class="close" aria-label="关闭" data-close>×</button><p class="eyebrow">FOR ANOTHER LITTLE DAY</p><h2 id="future-title">留给以后的小信</h2><div id="future-list"></div><p class="tiny">按设备时间拆信。还没到日期的文字只是暂时收起，并非加密保存。</p></div></dialog>
+  <dialog id="privacy-dialog" aria-labelledby="privacy-title"><div class="dialog-content"><button class="close" aria-label="关闭" data-close>×</button><p class="eyebrow">A SMALL PLACE, A FEW WORDS</p><h2 id="privacy-title">关于这个小地方</h2><div class="privacy-copy"><p>这是朋友留给馨馨的一个小空间。没有打卡，没有评分，也不用汇报来过几次。</p><p>你的输入不会上传。树洞默认不保存；只有你主动选择留下的纸条、收藏和动画偏好会保存在当前浏览器。这里没有访问统计。</p><p>本地记录不是加密保险箱，同一浏览器的其他使用者可能看到。换浏览器、清理网站数据或使用无痕模式，都可能让记录消失。</p><p>页面里的文字和插画可以公开访问；“以后的小信”只是按设备时间显示，不保证提前保密。网页本身无法替你向朋友发送消息，也不会在关闭后主动提醒。</p><p>如果想找人说说话，可以直接联系你信任的人。这个盒子能放些纸条，真实的陪伴也一直值得拥有。</p></div></div></dialog>
+  <div id="art-effects" aria-hidden="true"></div>
+</body>
+</html>

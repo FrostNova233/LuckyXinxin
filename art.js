@@ -1,0 +1,29 @@
+(() => {
+  'use strict';
+  const names = Object.freeze({ smile: '微笑', laugh: '眯眼笑', sleepy: '困困', blank: '发呆', pout: '鼓脸', wistful: '小委屈' });
+  const faces = {
+    smile: '<path d="M40 64v3m20-3v3M46 77q5 5 10-1"/>',
+    laugh: '<path d="m35 66 6-4 5 4m9 0 5-4 5 4M43 76q8 13 16 0Z"/>',
+    sleepy: '<path d="m35 66 10 1m11 0 10-1"/><ellipse cx="51" cy="79" rx="3" ry="4"/>',
+    blank: '<circle cx="40" cy="65" r="2.2"/><circle cx="61" cy="65" r="2.2"/><path d="M48 79h6"/>',
+    pout: '<path d="m35 62 10 3m11 0 10-3M47 78q4-4 8 0"/><path d="M28 75q5 6 10 0m27 0q5 6 10 0" stroke="#bc9284"/>',
+    wistful: '<path d="m35 62 10 4m11 0 10-4M45 81q6-6 12 0"/><path d="M33 69q-4 6 0 7 4-1 0-7Z" fill="#89b5bf" stroke="none"/>'
+  };
+  const path = 'M50 8C43 25 20 43 20 65a30 30 0 0 0 60 0C80 43 57 25 50 8Z';
+  function mascot(expression = 'smile', luggage = false) {
+    if (!Object.hasOwn(names, expression)) expression = 'smile';
+    return `<svg viewBox="0 0 110 125" aria-hidden="true" class="mascot-svg" data-expression="${expression}"><path d="M39 93 34 108m28-15 7 15M21 68 9 77" stroke="#536f6a" stroke-width="2.3" fill="none" stroke-linecap="round"/><g class="waving-arm"><path d="M78 66q18-2 19-20m-1 1 5 0m-5 0-3-4" stroke="#536f6a" stroke-width="2.3" fill="none" stroke-linecap="round"/></g><path d="${path}" fill="#b6ced0" stroke="#536f6a" stroke-width="2"/><g class="face-details"><path d="M30 62q-3 12 4 17" fill="none" stroke="#edf2e9" stroke-width="3" stroke-linecap="round"/><g fill="none" stroke="#405b57" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${faces[expression]}</g><ellipse cx="34" cy="75" rx="4" ry="2" fill="#d4b2a0" opacity=".65"/></g>${luggage ? '<g class="little-luggage"><rect x="2" y="82" width="24" height="25" rx="3" fill="#cfb28e" stroke="#88765e" stroke-width="1.6"/><path d="M9 81v-5h10v5m-9 2v24m9-24v24" stroke="#88765e" stroke-width="1.4" fill="none"/><path d="M6 110h2m13 0h2" stroke="#536f6a" stroke-width="3" stroke-linecap="round"/></g>' : ''}</svg>`;
+  }
+  const inner = svg => svg.replace(/^<svg[^>]*>|<\/svg>$/g, '');
+  function catching(expression) {
+    // The leaf and raindrop share a landing anchor through the gentle bounce.
+    const landing = { x: 180, y: 224 }, feetY = 108;
+    const leaf = 'M177 201C213 187 265 191 290 214C305 229 290 246 270 254C246 267 216 270 196 266L184 241L173 269C134 274 91 263 72 247C53 232 67 214 91 205C115 195 146 194 177 201Z';
+    return `<svg viewBox="0 0 360 310" aria-hidden="true" style="--landing-x:${landing.x}px;--landing-y:${landing.y}px"><ellipse cx="180" cy="290" rx="105" ry="6" fill="#e6e7d9"/><g class="catch-leaf" stroke-linecap="round" stroke-linejoin="round"><path d="M180 260q12 21-23 35" fill="none" stroke="#819878" stroke-width="2.5"/><path class="leaf-surface" d="${leaf}" fill="#b5c6a4" stroke="#748b73" stroke-width="1.8"/><path d="M74 242q39 28 99 21m24-3q55 8 87-23" stroke="#9cad8b" stroke-width="3" fill="none"/><g stroke="#8ea783" stroke-width="1.2" fill="none"><path d="M180 224q-30-15-67-19m67 19q-52-2-105 8m105-8q-39 11-63 34m63-34q-3-13-3-23m3 23q39-18 77-21m-77 21q59-2 105 4m-105-4q42 12 67 34m-67-34 4 17"/><path d="m130 212-11 5m21 21-18-1m109-24 10 5m-9 23 19-1" stroke-width=".9"/></g><ellipse cx="248" cy="214" rx="4.5" ry="3" fill="#e1ebe0" stroke="#91aa94" stroke-width="1"/><ellipse cx="111" cy="235" rx="3" ry="2" fill="#e1ebe0"/></g><g class="catch-drop-motion"><svg x="${landing.x - 50}" y="${landing.y - feetY}" width="110" height="125" viewBox="0 0 110 125">${inner(mascot(expression))}</svg></g><g class="catch-ripples" fill="none" stroke="#8fae9e" stroke-width="1.4" stroke-linecap="round"><ellipse cx="180" cy="226" rx="29" ry="5"/><path d="m139 212-7-5m89 5 7-5"/></g></svg>`;
+  }
+  function departure() {
+    const rain = Array.from({ length: 23 }, (_, i) => { const x = 184 + (i * 29) % 116, y = 15 + (i * 23) % 222; return `<path d="m${x} ${y} -4 13"/>`; }).join('');
+    return `<svg viewBox="0 0 480 310" aria-hidden="true"><defs><clipPath id="doorway-rain-clip"><path d="M180 20h120v229H180Z"/></clipPath></defs><path d="M0 0h480v310H0Z" fill="#f0e9dc"/><path class="door-opening" d="M180 20h120v229H180Z" fill="#d8e2db"/><g clip-path="url(#doorway-rain-clip)"><path d="M177 145q63-31 126 0v108H177Z" fill="#c1d1c2"/><path d="M177 177q69-28 126 3v73H177Z" fill="#b4c6bb"/><path d="M177 220q63-16 126 0v33H177Z" fill="#c8d4ca"/><path d="M240 155 210 249h60Z" fill="#dfe4d9" opacity=".75"/><g class="journey-rain" stroke="#94b1af" stroke-width="1.2" stroke-linecap="round">${rain}</g></g><path d="M0 249h480v61H0Z" fill="#e7decd"/><path d="M68 310 136 249m30 61 29-61m119 61-29-61m127 61-68-61M0 249h175m130 0h175" stroke="#c6baa2" stroke-width="1.3" fill="none"/><path d="M177 252V17h126v235" fill="none" stroke="#b8aa8e" stroke-width="5" stroke-linejoin="round"/><path d="M181 244h118v8H181Z" fill="#c8b99b"/><path d="M181 244h118" stroke="#e6d9bd" stroke-width="2"/><path class="door-leaf" d="M177 20 122 44v230l55-25Z" fill="#d9c7a8" stroke="#aa9879" stroke-width="1.8" stroke-linejoin="round"/><path d="m122 44 4 2v225l-4 3Z" fill="#baa585"/><path d="m131 50 38-17v207l-38 18Z" stroke="#c8b491" stroke-width="1.2" fill="none"/><path d="M135 150v15" stroke="#948166" stroke-width="2.5" stroke-linecap="round"/><path d="M179 21v222m122-222v222" stroke="#9d9077" stroke-width="1.5"/><g class="traveler-motion"><svg x="185" y="135" width="110" height="125" viewBox="0 0 110 125">${inner(mascot('smile', true))}</svg></g></svg>`;
+  }
+  window.BOTTLE_ART = Object.freeze({ names, mascot, catching, departure });
+})();

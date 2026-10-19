@@ -1,16 +1,17 @@
-/* Small discoveries in the illustration. The SVG keeps its original 560 × 420 coordinates. */
-.art-stage{position:relative;aspect-ratio:560/420;width:100%;isolation:isolate}
-.art-stage .box-art{display:block;width:100%;height:100%;max-height:none}
-.art-hotspot{position:absolute;min-width:44px;min-height:44px;padding:0;background:transparent;border-radius:16px;z-index:2}
-.hotspot-box{left:24%;top:67%;width:50%;height:23%;border-radius:6px 6px 40px 40px}
-.hotspot-letter{left:28%;top:24%;width:42%;height:34%;transform:rotate(-3deg)}
-.hotspot-flower{left:59%;top:7%;width:15%;height:33%;z-index:3;border-radius:44%}
-.hotspot-heart{left:77%;top:20%;width:12%;height:17%;z-index:3;border-radius:50%}
-.art-hotspot:hover{background:#fff8e315;filter:none}
-.art-hotspot:focus-visible{background:#fff8e330;outline-offset:1px}
-.art-hint{margin:0;font-size:10px;color:#727969;letter-spacing:.8px}
-.art-message{height:44px;margin:8px -8px 0;padding:0 8px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:14px;line-height:1.5;color:#55674e;opacity:0;transition:opacity .35s;overflow-wrap:anywhere}
-.art-message.message-visible{opacity:1}
+/* Motion is deliberate and ends; system reduced motion is honored in JS and CSS. */
+.is-sparkling .hero-star{animation:star-wink .9s ease-in-out 2;transform-box:fill-box;transform-origin:center}.is-sparkling .bottle-sparkle{animation:star-wink .7s ease-in-out 2}@keyframes star-wink{50%{opacity:.4;filter:brightness(1.2)}}
+.picker-scene{min-height:220px;display:flex;align-items:center;justify-content:center;gap:18px;margin:16px 0 0}.pick-drop{background:transparent;border:0;padding:8px 0;width:110px;max-width:30%;min-height:145px;transform:rotate(var(--tilt));transition:translate .2s}.pick-drop:nth-child(1){--tilt:-6deg;margin-top:16px}.pick-drop:nth-child(2){--tilt:1deg;margin-top:-10px}.pick-drop:nth-child(3){--tilt:7deg;margin-top:18px}.pick-drop>.mascot-svg{width:100%;height:auto}.pick-drop:hover:not(:disabled){translate:0 -7px;filter:none}.pick-drop:disabled{opacity:1}.picker-caption{text-align:center}.catch-caption{text-align:center;line-height:1.8;margin-top:0}#catch-scene{width:min(100%,360px);margin:0 auto;line-height:0}#catch-scene>svg{width:100%;height:auto}/* One SVG coordinate system keeps the landing point aligned at every size. */
+.catch-leaf{transform-origin:var(--landing-x) var(--landing-y);transform:translateY(0)}.catch-drop-motion{transform-origin:var(--landing-x) var(--landing-y);transform:translateY(0)}.catch-ripples{opacity:0}.catch-caption{visibility:hidden}.is-catching .catch-leaf{animation:leaf-receive 1.3s ease-out both}.is-catching .catch-drop-motion{animation:raindrop-caught 1.3s ease-in-out both}.is-catching .catch-ripples{animation:catch-ring 1.3s ease-out both}.is-catching .catch-caption{animation:catch-caption 1.3s steps(1,end) both}
+@keyframes leaf-receive{0%,35%{transform:translateY(0)}45%{transform:translateY(5px) scaleY(.96)}52%{transform:translateY(-2px) scaleY(1.01)}60%,100%{transform:translateY(0)}}
+@keyframes raindrop-caught{0%{transform:translateY(-98px)}45%{transform:translateY(5px) scale(1.02,.98)}52%{transform:translateY(-6px)}60%,100%{transform:translateY(0)}}
+@keyframes catch-ring{0%,44%{opacity:0}48%{opacity:.8}65%,100%{opacity:0}}
+@keyframes catch-caption{0%,44.99%{visibility:hidden}45%,100%{visibility:visible}}
+#departure-scene{margin:5px -5px 16px;line-height:0}#departure-scene>svg{width:100%;height:auto;display:block}.traveler-motion{transform-origin:240px 243px;transform:translateY(-55px) scale(.28);filter:blur(1.2px);opacity:.6}.is-travelling .traveler-motion{animation:raindrop-departure 5s ease-in-out both}.is-travelling .waving-arm{transform-box:fill-box;transform-origin:0 90%;animation:wave-goodbye .3s ease-in-out 4 alternate}.is-travelling .face-details{animation:turn-away 5s linear both}.is-travelling .journey-rain{animation:journey-rain .7s linear 8}.is-complete .traveler-motion{transform:translateY(-78px) scale(.08);opacity:0;filter:blur(6px)}.is-static .traveler-motion{transform:translateY(-55px) scale(.28);opacity:.5;filter:blur(1.2px)}.is-static .face-details{opacity:0}.result-copy{font-family:var(--serif);font-size:22px;line-height:1.9;margin:12px 0 22px}.journey-rain{opacity:.75}#saved-scene{width:120px;margin:15px auto 20px}#skip-departure{margin:-10px 0 12px;color:var(--muted)}
+@keyframes raindrop-departure{0%,18%{transform:translateY(40px) scale(1.05);filter:blur(0);opacity:1}35%{transform:translateY(1px) scale(.7);filter:blur(0);opacity:1}58%{transform:translateY(-39px) scale(.39);filter:blur(.5px);opacity:.9}78%{transform:translateY(-62px) scale(.20);filter:blur(2px);opacity:.6}100%{transform:translateY(-78px) scale(.08);filter:blur(6px);opacity:0}}@keyframes turn-away{0%,18%{opacity:1}26%,100%{opacity:0}}@keyframes wave-goodbye{to{transform:rotate(-22deg)}}@keyframes journey-rain{to{translate:-4px 12px}}
+@media(max-width:760px){.picker-scene{min-height:195px;gap:10px}.pick-drop{min-height:128px}.result-copy{font-size:21px}}
+@media(prefers-reduced-motion:reduce){.pick-drop:hover:not(:disabled){translate:none}.is-travelling .traveler-motion{transform:translateY(-55px) scale(.28)}.journey-rain{animation:none}}
+
+/* Original gift-box discoveries restored from the previous home illustration. */
 .packed-lid,.paper-plane{opacity:0;pointer-events:none}
 .art-flower{transform-origin:360px 160px}
 .art-heart{transform-origin:461px 113px}
@@ -30,37 +31,3 @@
 @keyframes lids-close{0%,100%{opacity:1;transform:scaleY(1)}25%,72%{opacity:0;transform:scaleY(.15)}90%{opacity:1;transform:scaleY(1)}}
 @keyframes contents-pack{0%,100%{opacity:1;transform:translateY(0)}24%,73%{opacity:0;transform:translateY(38px)}92%{opacity:1;transform:translateY(0)}}
 @keyframes package-appear{0%,15%,100%{opacity:0;transform:translateY(-14px)}30%,70%{opacity:1;transform:translateY(0)}88%{opacity:0;transform:translateY(-14px)}}
-#art-effects{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:100;contain:strict}
-.petal{position:absolute;top:-25px;width:14px;height:22px;border-radius:90% 10% 80% 20%;opacity:0;animation:petal-fall 1.55s ease-in forwards}
-.floating-heart{position:absolute;font-size:28px;color:#b47e71;line-height:1;opacity:0;animation:heart-float 1.4s ease-out forwards}
-@keyframes petal-fall{0%{opacity:0;transform:translate(0,-20px) rotate(0)}12%{opacity:.85}80%{opacity:.7}100%{opacity:0;transform:translate(var(--drift),calc(100dvh + 50px)) rotate(var(--turn))}}
-@keyframes heart-float{15%{opacity:.85}100%{opacity:0;transform:translate(var(--drift),-105px) scale(.6)}}
-
-/* A small open box and three equal, unranked paper backs. */
-.picker-scene{position:relative;width:330px;max-width:100%;height:285px;margin:24px auto 0;animation:picker-arrive .35s ease-out}
-.picker-box-back{position:absolute;inset:95px 10px 18px;background:#a9b08a;border:2px solid #72775c;border-radius:5px;transform:skewY(-2deg)}
-.picker-papers{position:absolute;inset:35px 12px 0;display:flex;justify-content:center;gap:8px;align-items:flex-start}
-.pick-paper{position:relative;width:85px;height:172px;flex-shrink:1;border:1.5px solid #bbb69b;border-radius:3px;background:#fffaf0;box-shadow:2px 2px 0 #5a684719;color:#9b9874;transform:rotate(var(--tilt));transform-origin:50% 100%;transition:translate .2s}
-.pick-paper:nth-child(1){--tilt:-12deg;top:12px}
-.pick-paper:nth-child(2){--tilt:1deg;top:-6px;background:#f4ebd9}
-.pick-paper:nth-child(3){--tilt:12deg;top:12px;background:#f1f0df}
-.pick-paper span{display:block;font-size:25px;position:absolute;top:32px;left:0;right:0}
-.pick-paper::after{content:"";position:absolute;left:22%;right:22%;top:85px;border-top:1px solid #c5bda5;box-shadow:0 9px 0 #c5bda5}
-.pick-paper:hover:not(:disabled){translate:0 -9px;filter:none}
-.pick-paper:disabled{opacity:1;cursor:default}
-.picker-box-front{position:absolute;top:163px;left:4px;right:4px;height:102px;background:#c2c39e;border:2px solid #72775c;border-radius:3px 3px 10px 10px;box-shadow:0 10px 0 -5px #dedccb;transform:skewY(2deg);pointer-events:none;display:flex;align-items:center;justify-content:center}
-.picker-box-front>span{font-family:var(--serif);font-size:13px;letter-spacing:3px;padding:3px 15px;background:#f4efd9;border:1px solid #aaa68a;transform:rotate(-3deg)}
-.pick-paper.picked{z-index:5;animation:paper-lift .5s ease-in-out forwards}
-#note-reader.revealing .paper-note{animation:quick-unfold .5s ease-in-out}
-#note-picker .dialog-intro{margin-top:-8px}
-#back-to-picker{min-height:44px}
-@keyframes picker-arrive{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
-@keyframes paper-lift{0%{transform:rotate(var(--tilt))}65%{transform:translateY(-42px) rotate(0) scale(1.08)}100%{transform:translateY(-30px) rotate(0) scale(1.18,1.05);opacity:0}}
-@keyframes quick-unfold{0%,100%{opacity:1;transform:scaleY(1)}45%{opacity:0;transform:scaleY(.15)}}
-@media(max-width:620px){.art-message{font-size:12px}.art-hint{font-size:10px}.picker-scene{height:270px}.picker-papers{gap:5px;inset-inline:14px}.pick-paper{width:76px}.picker-box-front{top:157px}.art-stage{max-width:380px;margin-inline:auto}}
-@media(prefers-reduced-motion:reduce){.art-message{transition:none}.pick-paper:hover:not(:disabled){translate:none}#art-effects{display:none}.art-stage *{animation:none!important}}
-
-/* Decorative marks are paths, never platform-dependent emoji glyphs. */
-.ui-icon{display:inline-block;width:1em;height:1em;vertical-align:-.12em;flex-shrink:0;pointer-events:none}
-.rain-secret>svg{display:block;margin:auto;overflow:visible}
-.secret-content>svg{display:block;margin:0 auto}

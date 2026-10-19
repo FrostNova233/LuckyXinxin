@@ -1,0 +1,640 @@
+/* External test dependency only; the website itself needs no packages.
+ * npm install --no-save --package-lock=false playwright
+ * npx playwright install chromium
+ * node tests/browser.cjs
+ * Or set NODE_PATH to an existing Playwright installation and
+ * BROWSER_EXECUTABLE to an installed Chromium / Edge executable.
+ */
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { chromium } = require('playwright');
+const { createServer } = require('../scripts/serve.cjs');
+const prefix = 'lucky-everyday:xinxin:v1:';
+let browser, origin, passed = 0;
+const server = createServer();
+const results = path.resolve(__dirname, '../test-results');
+
+async function check(name, run) {
+  await run(); passed++; console.log(`PASS ${name}`);
+}
+async function fresh(options = {}) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', timezoneId: 'Asia/Tokyo', ...options.context });
+  const issues = [];
+  context.on('request', request => {
+    if (!request.url().startsWith(origin + '/') || request.method() !== 'GET') issues.push(request.url());
+  });
+  const page = await context.newPage();
+  page.on('pageerror', error => issues.push(error.message));
+  await page.addInitScript(({ seed, blocked, quota, pool, random, letters }) => {
+    if (!sessionStorage.getItem('test-seeded')) {
+      for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+      sessionStorage.setItem('test-seeded', 'yes');
+    }
+    if (blocked) Storage.prototype.getItem = function () { throw new DOMException('Blocked', 'SecurityError'); };
+    if (quota || blocked) {
+      const set = Storage.prototype.setItem;
+      window.__testOriginalSet = set;
+      Storage.prototype.setItem = function (key, value) {
+        if (blocked || key.endsWith(quota)) throw new DOMException('Full', 'QuotaExceededError');
+        return set.call(this, key, value);
+      };
+    }
+    if (random) {
+      let state = 123456;
+      Math.random = () => ((state = (state * 1664525 + 1013904223) >>> 0) / 4294967296);
+    }
+    if (pool || letters) {
+      let content;
+      Object.defineProperty(window, 'EMOTION_BOX_CONTENT', {
+        configurable: true, get: () => content,
+        set: value => { if (pool) value.messages = pool; if (letters) value.letters = letters; content = value; }
+      });
+    }
+  }, { seed: options.seed || {}, blocked: !!options.blocked, quota: options.quota || '', pool: options.pool, random: !!options.random, letters: options.letters });
+  if (!options.realTime) await page.clock.install({ time: new Date('2026-10-19T14:00:00+09:00') });
+  await page.goto(origin + (options.subdir ? '/LuckyXinxin/' : '/'));
+  await page.locator('#open-daily').waitFor();
+  return { page, context, issues, close: async () => { assert.deepEqual(issues, [], 'Runtime errors, external requests, or upload'); await context.close(); } };
+}
+const text = (page, selector = '#note-text') => page.locator(selector).innerText();
+async function closeNote(page) { await page.locator('#note-dialog .dialog-header [data-close]').click(); }
+// Wait for CSS animations to start before seeking; otherwise a pending start
+// can reset currentTime and produce a screenshot of the wrong frame.
+async function animationFrame(page, selector, time) {
+  await page.locator(selector).evaluate(async (node, at) => {
+    const animations = node.getAnimations({ subtree: true });
+    await Promise.all(animations.map(animation => animation.ready));
+    animations.forEach(animation => { animation.pause(); animation.currentTime = at; });
+  }, time);
+}
+async function openRandom(page) {
+  await page.locator('.choice-note').click();
+  await page.locator('.pick-drop').first().click();
+  return text(page);
+}
+async function next(page) { await page.locator('#next-note').click(); await page.locator('.pick-drop').first().click(); return text(page); }
+
+(async () => {
+  await fs.mkdir(results, { recursive: true });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  origin = `http://127.0.0.1:${server.address().port}`;
+  browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
+
+  const giftKey = 'lucky-everyday:xinxin:v2:gift-drops';
+  const faces = ['smile', 'laugh', 'sleepy', 'blank', 'pout', 'wistful'];
+  const fixturePool = Array.from({ length: 240 }, (_, i) => ({ id: `gift-${String(i).padStart(3, '0')}`, text: `小幸运 ${i + 1}：今天可以慢慢来。` }));
+  const records = n => fixturePool.slice(0, n).map((m, i) => ({ id: `message:${m.id}`, source: 'message', messageId: m.id, text: m.text, expression: faces[i % faces.length] }));
+  const store = n => ({ version: 2, items: records(n) });
+  const privateRecords = n => Array.from({ length: n }, (_, i) => ({ id: `self-${i}`, text: `只有点开才能看到的心事 ${i}`, at: new Date(Date.UTC(2026, 9, 18, 0, i)).toISOString() }));
+  const cards = (page, group) => page.locator(`#home-shelves .bottle-card${group ? `[data-group="${group}"]` : ''}`);
+  const closeDialog = async (page, id) => { await page.locator(`#${id} .dialog-header [data-close]`).click(); await page.waitForFunction(id => !document.getElementById(id).open, id); };
+  const countIs = async (page, n) => assert.equal(await text(page, '#drop-count'), `已经留下${n}滴小雨滴`);
+  const gifts = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), giftKey);
+
+  await check('all 64 original message IDs and the old gift-box discoveries remain available', async () => {
+    const original = { window: {} };
+    require('node:vm').runInNewContext(require('node:child_process').execFileSync('git', ['show', '3702742:content.js'], { encoding: 'utf8' }), original);
+    const t = await fresh(); const { page } = t;
+    const ids = await page.evaluate(() => window.EMOTION_BOX_CONTENT.messages.map(message => message.id));
+    assert.equal(ids.length, 64); assert.deepEqual(ids, Array.from(original.window.EMOTION_BOX_CONTENT.messages, message => message.id));
+    for (const kind of ['box', 'letter', 'flower', 'heart']) {
+      assert.equal(await page.locator(`[data-art="${kind}"]`).count(), 1);
+      assert.equal(await page.evaluate(kind => window.EMOTION_BOX_CONTENT.interactions[kind], kind), original.window.EMOTION_BOX_CONTENT.interactions[kind]);
+    }
+    assert.equal(await page.locator('#desk-box .box-art .art-letter,#desk-box .box-art .art-flower,#desk-box .box-art .art-heart').count(), 3);
+    assert.equal(await page.locator('#package-label').textContent(), '美好已打包'); assert.equal(await page.locator('#art-stage .art-hotspot').count(), 8); await t.close();
+  });
+
+  await check('first and returning layouts keep the daily entry visible and all eight scene hotspots separate', async () => {
+    for (const returning of [false, true]) {
+      const t = await fresh({ seed: returning ? { [prefix + 'visited']: true } : {} }); const { page } = t;
+      for (const width of [320, 390, 430, 760, 768, 900, 1280]) {
+        await page.setViewportSize({ width, height: width === 320 ? 640 : 844 });
+        const bounds = await page.evaluate(() => {
+          const get = selector => document.querySelector(selector).getBoundingClientRect();
+          const hot = [...document.querySelectorAll('#art-stage .art-hotspot')].map(node => ({ label: node.getAttribute('aria-label'), rect: node.getBoundingClientRect() }));
+          const overlaps = [];
+          for (let i = 0; i < hot.length; i++) for (let j = i + 1; j < hot.length; j++) {
+            const a = hot[i].rect, b = hot[j].rect;
+            if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > .5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > .5) overlaps.push([hot[i].label, hot[j].label]);
+          }
+          return { overflow: document.documentElement.scrollWidth > innerWidth, dailyBottom: get('#open-daily').bottom, dailyTop: get('#open-daily').top,
+            minTarget: hot.every(({ rect: r }) => r.width >= 44 && r.height >= 44), overlaps,
+            copyVisible: get('.hero-copy .eyebrow').height > 0 && get('#hero-intro').height > 0,
+            mobileOrder: get('#open-daily').bottom < get('.choices').top && get('.choices').bottom <= get('.desk-props').top,
+            feedbackHeight: get('#art-message').height, boxWidth: get('#desk-box').width };
+        });
+        assert.equal(bounds.overflow, false); assert.equal(bounds.minTarget, true); assert.deepEqual(bounds.overlaps, []); assert.equal(bounds.copyVisible, true); assert.ok(bounds.dailyTop > 0 && bounds.dailyBottom < (width === 320 ? 640 : 700)); assert.ok(bounds.feedbackHeight >= 45); assert.ok(bounds.boxWidth >= 240);
+        if (width <= 760) assert.equal(bounds.mobileOrder, true);
+        if ([390, 768, 1280].includes(width)) await page.screenshot({ path: path.join(results, `desk-${returning ? 'returning' : 'first'}-${width}.png`), fullPage: true });
+      }
+      await t.close();
+    }
+  });
+
+  await check('iPhone 15 Pro Max puts a small bottle beside the greeting and gives the gift box its own area', async () => {
+    const { defaultBrowserType, ...device } = require('playwright').devices['iPhone 15 Pro Max'];
+    const t = await fresh({ context: { ...device, reducedMotion: 'reduce' } }); const { page } = t;
+    assert.equal(await page.locator('.bottle-hint').count(), 0);
+    for (const height of [739, 932]) {
+      await page.setViewportSize({ width: 430, height });
+      const layout = await page.evaluate(() => {
+        const box = selector => document.querySelector(selector).getBoundingClientRect();
+        const heading = box('#hero-title'), bottle = box('.desk-bottle'), intro = box('#hero-intro'), gift = box('.desk-props'), choices = box('.choices');
+        return { bottleWidth: bottle.width, sharesGreeting: bottle.left >= heading.right && bottle.top < heading.bottom && bottle.bottom > heading.top,
+          introBelow: intro.top >= bottle.bottom, giftSeparate: gift.top > choices.bottom && gift.top > bottle.bottom,
+          giftHeight: gift.height, dailyBottom: box('#open-daily').bottom, overflow: document.documentElement.scrollWidth > innerWidth,
+          footerTarget: box('#closing-star').width >= 44 && box('#closing-star').height >= 44,
+          sheepBehindBox: !!(document.querySelector('.art-sheep').compareDocumentPosition(document.querySelector('.art-box-base')) & Node.DOCUMENT_POSITION_FOLLOWING) };
+      });
+      assert.ok(layout.bottleWidth <= 155); assert.equal(layout.sharesGreeting, true); assert.equal(layout.introBelow, true); assert.equal(layout.giftSeparate, true); assert.ok(layout.giftHeight < 350); assert.ok(layout.dailyBottom < height); assert.equal(layout.overflow, false); assert.equal(layout.footerTarget, true); assert.equal(layout.sheepBehindBox, true);
+      await page.screenshot({ path: path.join(results, `iphone15-pro-max-home-${height}.png`), fullPage: true, scale: 'css' });
+    }
+    await page.locator('.hotspot-bottle').tap(); await closeDialog(page, 'collection-dialog'); await page.locator('#touch-star').tap(); assert.ok((await text(page, '#art-message')).length);
+    await page.locator('#open-secret').tap(); await closeDialog(page, 'secret-dialog'); assert.equal(await page.locator('#open-secret').evaluate(node => node === document.activeElement), true); await t.close();
+  });
+
+  await check('sheep comic and closing star respond to touch and keyboard, cancel repeats and respect reduced motion', async () => {
+    const { defaultBrowserType, ...device } = require('playwright').devices['iPhone 15 Pro Max'];
+    const t = await fresh({ context: { ...device, reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    assert.equal(await page.locator('#sheep-bubble').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false);
+    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#sheep-bubble').innerText(), '咩～'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), 'sheep'); assert.equal(await text(page, '#art-message'), '');
+    await page.clock.runFor(1000); await page.locator('[data-art="sheep"]').tap(); await page.clock.runFor(3100); assert.equal(await page.locator('#sheep-bubble').isVisible(), true);
+    await page.clock.runFor(899); assert.equal(await page.locator('#sheep-bubble').isVisible(), true); await page.clock.runFor(1); assert.equal(await page.locator('#sheep-bubble').isVisible(), false);
+    await page.locator('[data-art="sheep"]').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('#sheep-bubble').isVisible(), true);
+    await page.locator('#closing-star').tap(); assert.equal(await page.locator('#sheep-bubble').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-shining')), true); assert.equal(await text(page, '#closing-star-status'), '给今天留一点小星光。');
+    await page.clock.runFor(1000); await page.locator('#closing-star').tap(); await page.clock.runFor(1100); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-shining')), true);
+    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#closing-star:not(.is-shining)').waitFor({ state: 'attached' }); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), true);
+    await page.clock.runFor(2899); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), true); await page.clock.runFor(1); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false);
+    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#sheep-bubble').isVisible(), true); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null);
+    await page.locator('#closing-star').focus(); await page.keyboard.press('Space'); assert.equal(await page.locator('#sheep-bubble').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit') && !node.classList.contains('is-shining')), true);
+    await page.locator('.choice-note').tap(); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false); await closeNote(page);
+    await page.locator('[data-art="sheep"]').tap(); await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#sheep-bubble').isVisible(), false);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#sheep-bubble').isVisible(), false);
+    await countIs(page, 0); assert.equal(await gifts(page), null); assert.deepEqual(await page.evaluate(() => Object.keys(localStorage)), [prefix + 'visited']); await t.close();
+    const live = await fresh({ realTime: true, context: { ...device, reducedMotion: 'no-preference' } });
+    await live.page.locator('[data-art="sheep"]').tap(); await live.page.waitForTimeout(500); await live.page.screenshot({ path: path.join(results, 'iphone15-pro-max-sheep.png'), scale: 'css' });
+    await live.page.locator('#closing-star').tap(); await live.page.waitForTimeout(600); await live.page.screenshot({ path: path.join(results, 'iphone15-pro-max-star.png'), scale: 'css' }); await live.close();
+  });
+
+  await check('all five tabletop discoveries animate, clean up, retain feedback and never add collection records', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference', viewport: { width: 1280, height: 900 } } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    const baseline = await page.locator('.desk-feedback').boundingBox();
+    for (const kind of ['box', 'letter', 'flower', 'heart', 'star']) {
+      await page.locator(`[data-art="${kind}"]`).click();
+      assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), kind);
+      assert.equal(await text(page, '#art-message'), await page.evaluate(kind => window.EMOTION_BOX_CONTENT.interactions[kind], kind));
+      await animationFrame(page, '#art-stage', kind === 'letter' ? 950 : 650);
+      if (kind === 'box') assert.ok(Number(await page.locator('.packed-lid').evaluate(node => getComputedStyle(node).opacity)) > .9);
+      if (kind === 'letter') assert.ok(Number(await page.locator('.paper-plane').evaluate(node => getComputedStyle(node).opacity)) > .9);
+      if (kind === 'flower') {
+        assert.equal(await page.locator('#art-effects').evaluate(node => getComputedStyle(node).position), 'fixed');
+        const spread = await page.locator('.desk-petal').evaluateAll(nodes => nodes.map(node => parseFloat(node.style.left)));
+        assert.ok(Math.min(...spread) < 10 && Math.max(...spread) > 90);
+      }
+      if (['flower', 'heart'].includes(kind)) assert.equal(await page.locator('#art-effects > span').count(), kind === 'flower' ? 16 : 5);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await page.clock.runFor(2100); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null); assert.equal(await page.locator('#art-effects > span').count(), 0); assert.ok((await text(page, '#art-message')).length);
+      const after = await page.locator('.desk-feedback').boundingBox(); assert.equal(after.height, baseline.height);
+      await page.clock.runFor(1899); assert.ok((await text(page, '#art-message')).length); await page.clock.runFor(1); assert.equal(await text(page, '#art-message'), '');
+    }
+    assert.equal(await page.evaluate(() => localStorage.length), 0); await countIs(page, 0); await t.close();
+    // SVG paint can lag when seeking a paused animation with a mocked clock.
+    // Capture these two visual previews using the normal browser timeline.
+    const live = await fresh({ realTime: true, context: { reducedMotion: 'no-preference', viewport: { width: 1280, height: 900 } } });
+    for (const [kind, delay, filename] of [['box', 800, 'desk-box-packed.png'], ['letter', 950, 'desk-paper-plane.png']]) {
+      await live.page.locator(`[data-art="${kind}"]`).click(); await live.page.waitForTimeout(delay);
+      assert.ok(Number(await live.page.locator(kind === 'box' ? '.packed-lid' : '.paper-plane').evaluate(node => getComputedStyle(node).opacity)) > .9);
+      await live.page.screenshot({ path: path.join(results, filename) });
+    }
+    await live.close();
+  });
+
+  await check('tabletop rapid repeats, keyboard, modal focus, background and reduced motion have one active response', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    await page.locator('[data-art="flower"]').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('.desk-petal').count(), 16);
+    await page.clock.runFor(1000); await page.locator('[data-art="heart"]').click(); assert.equal(await page.locator('.desk-petal').count(), 0); assert.equal(await page.locator('.desk-heart').count(), 5);
+    await page.clock.runFor(1100); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), 'heart');
+    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#art-stage:not([data-effect])').waitFor({ state: 'attached' }); assert.equal(await text(page, '#art-message'), '这颗也留给你。'); assert.equal(await page.locator('#art-effects > span').count(), 0);
+    await page.clock.runFor(2899); assert.ok((await text(page, '#art-message')).length); await page.clock.runFor(1); assert.equal(await text(page, '#art-message'), '');
+    for (const kind of ['box', 'letter', 'flower', 'heart', 'star']) { await page.locator(`[data-art="${kind}"]`).focus(); await page.keyboard.press('Space'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null); assert.ok((await text(page, '#art-message')).length); }
+    await page.emulateMedia({ reducedMotion: 'no-preference' }); await page.locator('[data-art="letter"]').click(); await page.locator('[data-art="letter"]').click();
+    await animationFrame(page, '#art-stage', 950); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false); await page.screenshot({ path: path.join(results, 'desk-paper-plane-mobile.png') });
+    await page.locator('.hotspot-bottle').click(); assert.equal(await text(page, '#art-message'), ''); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null); await closeDialog(page, 'collection-dialog'); assert.equal(await page.locator('.hotspot-bottle').evaluate(node => node === document.activeElement), true);
+    await page.locator('[data-art="heart"]').click(); await page.locator('#open-secret').click(); assert.equal(await text(page, '#art-message'), ''); assert.equal(await page.locator('#art-effects > span').count(), 0); await closeDialog(page, 'secret-dialog'); assert.equal(await page.locator('#open-secret').evaluate(node => node === document.activeElement), true);
+    await page.locator('[data-art="flower"]').click(); await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await text(page, '#art-message'), ''); assert.equal(await page.locator('#art-effects > span').count(), 0);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null);
+    await page.evaluate(() => { window.__deskNodes = { box: document.getElementById('desk-box'), star: document.querySelector('.hero-star'), mascot: document.querySelector('.hero-mascot'), bottle: document.getElementById('hero-bottle') }; });
+    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#open-daily').click(); await countIs(page, 1); await closeNote(page);
+    assert.equal(await page.evaluate(() => Object.entries(window.__deskNodes).every(([key, node]) => node === (key === 'box' ? document.getElementById('desk-box') : key === 'bottle' ? document.getElementById('hero-bottle') : document.querySelector(key === 'star' ? '.hero-star' : '.hero-mascot')))), true);
+    await page.locator('[data-art="box"]').click(); assert.equal(await text(page, '#art-message'), '美好已打包，随时可以取。'); await countIs(page, 1); await t.close();
+  });
+
+  await check('drop wording and unpunctuated modal titles preserve saved snapshots and private text', async () => {
+    const item = { ...records(1)[0], text: '以前存下的这颗小雨滴。' };
+    const privateItem = { ...privateRecords(1)[0], text: '我自己写的一颗星。' };
+    const t = await fresh({ seed: { [giftKey]: { version: 2, items: [item] }, [prefix + 'vents']: [privateItem] } }); const { page } = t;
+    await countIs(page, 2);
+    assert.equal(await page.locator('#touch-star').getAttribute('aria-label'), '摸摸这颗幸运星');
+    assert.equal(await page.locator('.shelf-note').innerText(), '每瓶10滴，慢慢收就好。');
+    assert.deepEqual(await page.locator('dialog h2').evaluateAll(nodes => nodes.filter(node => node.textContent.endsWith('。')).map(node => node.textContent)), []);
+    await page.locator('.choice-note').click(); assert.equal(await text(page, '#note-dialog-title'), '随手接住一滴');
+    assert.equal((await page.locator('#note-dialog').textContent()).includes('颗'), false);
+    await page.locator('.pick-drop').first().click(); assert.equal(await text(page, '#next-note'), '再接一滴'); await closeNote(page);
+    await cards(page, 'gift').first().click(); await page.locator('.bottled-drop').first().click(); assert.equal(await text(page), item.text);
+    assert.deepEqual((await gifts(page)).items, [item]); await closeNote(page); await closeDialog(page, 'bottle-dialog');
+    await cards(page, 'self').first().click(); await page.locator('.bottled-drop').first().click(); assert.equal(await text(page, '#personal-text'), privateItem.text);
+    assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), prefix + 'vents'), [privateItem]); await t.close();
+  });
+
+  await check('daily catch saves once per date with a frozen snapshot and expression', async () => {
+    const t = await fresh({ pool: [{ id: 'same', text: '今天也可以慢慢来。' }] }); const { page } = t;
+    assert.equal(await page.evaluate(() => localStorage.length), 0);
+    assert.equal(await page.locator('#open-collection').count(), 0);
+    await page.locator('#open-daily').click(); await countIs(page, 1);
+    const saved = (await gifts(page)).items[0]; assert.equal(saved.source, 'daily'); assert.equal(saved.id, 'daily:2026-10-19'); assert.equal(saved.day, '2026-10-19'); assert.ok(faces.includes(saved.expression));
+    assert.equal(await page.locator('#next-note').isVisible(), false); assert.equal(await page.locator('#save-note').isVisible(), false); assert.equal(await page.locator('#go-random').isVisible(), true);
+    await closeNote(page); await page.reload(); assert.match(await text(page, '#hero-title'), /馨馨，欢迎回来～/);
+    await page.locator('#open-daily').click(); await countIs(page, 1); assert.deepEqual((await gifts(page)).items[0], saved);
+    assert.equal(await page.locator('#reader-mascot svg').getAttribute('data-expression'), saved.expression);
+    await closeNote(page); await page.clock.setFixedTime(new Date('2026-10-20T00:01:00+09:00')); await page.locator('#open-daily').click(); await countIs(page, 2);
+    assert.equal(await text(page), saved.text); assert.equal((await gifts(page)).items[1].id, 'daily:2026-10-20');
+    await page.locator('#go-random').click(); await page.locator('.pick-drop').first().click(); await page.locator('#save-note').click(); await countIs(page, 3);
+    assert.equal((await gifts(page)).items[2].id, 'message:same'); await t.close();
+  });
+
+  await check('an existing daily snapshot wins over changed content and has no random controls', async () => {
+    const item = { id: 'daily:2026-10-19', source: 'daily', day: '2026-10-19', messageId: 'changed', text: '当时存下的那句话', expression: 'pout' };
+    const t = await fresh({ pool: [{ id: 'changed', text: '后来编辑的文字' }], seed: { [giftKey]: { version: 2, items: [item] } } });
+    await t.page.locator('#open-daily').click(); assert.equal(await text(t.page), item.text); assert.equal(await t.page.locator('#reader-mascot svg').getAttribute('data-expression'), 'pout'); await countIs(t.page, 1); await t.close();
+  });
+
+  await check('catching takes 1.3 seconds and closing either mode before completion does not collect or draw', async () => {
+    const t = await fresh({ random: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    await page.locator('#open-daily').click(); assert.equal(await page.locator('#catch-panel').isVisible(), true);
+    await page.clock.runFor(500);
+    await closeNote(page); await page.clock.runFor(1000); await countIs(page, 0); assert.equal(await gifts(page), null);
+    await page.locator('.choice-note').click(); await page.locator('.pick-drop').first().click(); await page.clock.runFor(500);
+    await closeNote(page); await page.clock.runFor(1300); await countIs(page, 0); assert.equal(await gifts(page), null); assert.equal(await text(page), '');
+    await page.locator('.choice-note').click(); await page.locator('.pick-drop').first().click(); await page.clock.runFor(1299);
+    assert.equal(await page.locator('#catch-panel').isVisible(), true); await countIs(page, 0);
+    await page.clock.runFor(1); assert.equal(await page.locator('#note-reader').isVisible(), true); await countIs(page, 0);
+    const drawn = await text(page); await page.locator('#save-note').click(); await countIs(page, 1);
+    await closeNote(page); await page.locator('#open-daily').click(); await page.clock.runFor(1299); await countIs(page, 1); await page.clock.runFor(1); await countIs(page, 2);
+    assert.ok(drawn.length); await t.close();
+  });
+
+  await check('real CSS catching frames land on a lotus leaf, bounce together and hold at all widths', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00')); await page.locator('#open-daily').click();
+    const caption = () => page.locator('.catch-caption').evaluate(node => getComputedStyle(node).visibility);
+    assert.match(await page.locator('#catch-scene').getAttribute('aria-label'), /荷叶/);
+    assert.equal(await page.locator('[class*="catch-hands"]').count(), 0);
+    await animationFrame(page, '#catch-panel', 0); assert.equal(await caption(), 'hidden');
+    await page.screenshot({ path: path.join(results, 'catching-start.png') });
+    await animationFrame(page, '#catch-panel', 585);
+    const contact = await page.locator('#catch-scene').evaluate(node => {
+      const leaf = node.querySelector('.leaf-surface'), drop = node.querySelector('.catch-drop-motion svg');
+      return [[34, 108], [69, 108]].map(([x, y]) => leaf.isPointInFill(new DOMPoint(x, y).matrixTransform(drop.getScreenCTM()).matrixTransform(leaf.getScreenCTM().inverse())));
+    });
+    assert.deepEqual(contact, [true, true]);
+    assert.match(await page.locator('.catch-leaf').evaluate(node => getComputedStyle(node).transform), /5\)/);
+    await animationFrame(page, '#catch-panel', 600); assert.equal(await caption(), 'visible');
+    await page.screenshot({ path: path.join(results, 'catching-contact.png') });
+    await animationFrame(page, '#catch-panel', 676);
+    assert.match(await page.locator('.catch-drop-motion').evaluate(node => getComputedStyle(node).transform), /-6\)/);
+    assert.match(await page.locator('.catch-leaf').evaluate(node => getComputedStyle(node).transform), /-2\)/);
+    await page.screenshot({ path: path.join(results, 'catching-rebound.png') });
+    await animationFrame(page, '#catch-panel', 1040);
+    for (const width of [320, 390, 430, 760, 768, 900, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      const geometry = await page.locator('#catch-scene').evaluate(node => {
+        const root = node.querySelector('svg'), drop = node.querySelector('.catch-drop-motion svg'), leaf = node.querySelector('.catch-leaf'), surface = node.querySelector('.leaf-surface');
+        const feet = [[34, 108], [69, 108]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(drop.getScreenCTM()));
+        const supported = feet.map(foot => surface.isPointInFill(foot.matrixTransform(surface.getScreenCTM().inverse())));
+        const svgBox = root.getBoundingClientRect(), leafBox = leaf.getBoundingClientRect();
+        return { supported, order: !!(leaf.compareDocumentPosition(drop) & Node.DOCUMENT_POSITION_FOLLOWING), clipped: leafBox.bottom > svgBox.bottom || leafBox.left < svgBox.left || leafBox.right > svgBox.right, overflow: document.documentElement.scrollWidth > innerWidth, transform: getComputedStyle(node.querySelector('.catch-drop-motion')).transform, leafTransform: getComputedStyle(leaf).transform };
+      });
+      assert.deepEqual(geometry.supported, [true, true], `Feet must land on the leaf at ${width}`); assert.equal(geometry.order, true); assert.equal(geometry.clipped, false); assert.equal(geometry.overflow, false); assert.equal(geometry.transform, 'matrix(1, 0, 0, 1, 0, 0)'); assert.equal(geometry.leafTransform, 'matrix(1, 0, 0, 1, 0, 0)');
+    }
+    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(results, 'catching-lotus-leaf.png') });
+    await page.clock.runFor(1299); assert.equal(await page.locator('#catch-panel').isVisible(), true); await countIs(page, 0);
+    await closeNote(page); await page.clock.runFor(100); await countIs(page, 0); await t.close();
+  });
+
+  await check('picker shows three distinct cute expressions without ordinal labels', async () => {
+    const t = await fresh(); const { page } = t;
+    await page.locator('.choice-note').click();
+    const choices = await page.locator('.pick-drop').evaluateAll(nodes => nodes.map(node => ({ expression: node.dataset.expression, label: node.getAttribute('aria-label'), text: node.textContent })));
+    assert.equal(new Set(choices.map(x => x.expression)).size, 3); assert.ok(choices.every(x => faces.includes(x.expression) && x.text.trim() === '' && !/[一二三]/.test(x.label)));
+    await page.screenshot({ path: path.join(results, 'expression-picker.png') });
+    await page.locator('.pick-drop').nth(1).click(); assert.equal(await page.locator('#reader-mascot svg').getAttribute('data-expression'), choices[1].expression);
+    await page.locator('#next-note').click(); assert.equal(await page.locator('#note-picker').isVisible(), true); assert.equal(await page.locator('#note-reader').isVisible(), false); await t.close();
+  });
+
+  await check('the selected face survives save, reload and bottle rereading', async () => {
+    const t = await fresh({ pool: [{ id: 'only', text: '<b>表情也一起留下</b>' }] }); const { page } = t;
+    await page.locator('.choice-note').click(); const chosen = await page.locator('.pick-drop').nth(2).getAttribute('data-expression'); await page.locator('.pick-drop').nth(2).click(); await page.locator('#save-note').click();
+    assert.equal((await gifts(page)).items[0].expression, chosen); assert.equal(await page.locator('#note-text b').count(), 0);
+    await closeNote(page); await page.reload(); await cards(page, 'gift').first().click();
+    assert.equal(await page.locator('.bottled-picture svg').first().getAttribute('data-expression'), chosen); await page.locator('.bottled-drop').first().click(); assert.equal(await page.locator('#reader-mascot svg').getAttribute('data-expression'), chosen);
+    assert.equal(await page.locator('#next-note').isVisible(), false); await closeNote(page); await closeDialog(page, 'bottle-dialog');
+    await openRandom(page); assert.equal(await page.locator('#save-note').isDisabled(), true); assert.equal((await gifts(page)).items[0].expression, chosen); await countIs(page, 1); await t.close();
+  });
+
+  await check('one bottle preserves all six face variants rather than rendering the same face', async () => {
+    const t = await fresh({ pool: fixturePool, seed: { [giftKey]: store(10) } }); const { page } = t;
+    await cards(page, 'gift').first().click();
+    assert.deepEqual(await page.locator('.bottled-picture svg').evaluateAll(nodes => nodes.map(node => node.dataset.expression)), records(10).map(item => item.expression));
+    await page.screenshot({ path: path.join(results, 'saved-expression-bottle.png') }); await t.close();
+  });
+
+  await check('legacy favorites convert once on successful write and their backup is unchanged', async () => {
+    const ids = ['rest-01', 'rest-02', 'gone'], vents = privateRecords(1), days = ['2026-10-01'];
+    const t = await fresh({ seed: { [prefix + 'favorites']: ids, [prefix + 'vents']: vents, [prefix + 'drops']: days } }); const { page } = t;
+    await countIs(page, 5); assert.equal(await gifts(page), null);
+    await cards(page, 'gift').first().click(); const expressions = await page.locator('.bottled-picture svg').evaluateAll(nodes => nodes.map(node => node.dataset.expression));
+    await closeDialog(page, 'bottle-dialog'); await page.reload(); await cards(page, 'gift').first().click(); assert.deepEqual(await page.locator('.bottled-picture svg').evaluateAll(nodes => nodes.map(node => node.dataset.expression)), expressions);
+    await closeDialog(page, 'bottle-dialog'); await page.locator('#open-daily').click(); await countIs(page, 6);
+    assert.equal((await gifts(page)).items.length, 4); assert.deepEqual(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'favorites')), prefix), ids);
+    await closeNote(page); await page.reload(); await countIs(page, 6);
+    assert.deepEqual(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'vents')), prefix), vents); assert.deepEqual(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'drops')), prefix), days); await t.close();
+  });
+
+  await check('removing converted gifts never imports them back from the old backup', async () => {
+    const t = await fresh({ seed: { [prefix + 'favorites']: ['rest-01'] } }); const { page } = t;
+    await cards(page, 'gift').first().click(); await page.locator('.bottled-drop').first().click(); await page.locator('#remove-note').click(); await countIs(page, 0);
+    assert.deepEqual((await gifts(page)).items, []); assert.equal(await page.locator('#reader-close').evaluate(node => node === document.activeElement), true);
+    await closeNote(page); await closeDialog(page, 'bottle-dialog'); await page.reload(); await countIs(page, 0);
+    assert.deepEqual(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'favorites')), prefix), ['rest-01']); await t.close();
+  });
+
+  await check('daily quota failure stays readable, shows retry and retries the exact same face', async () => {
+    const t = await fresh({ quota: 'gift-drops' }); const { page } = t;
+    await page.locator('#open-daily').click(); await countIs(page, 0); assert.match(await text(page, '#note-status'), /没能保存/); assert.equal(await page.locator('#retry-daily').isVisible(), true);
+    const portrait = await page.locator('#reader-mascot svg').getAttribute('data-expression'), snapshot = await text(page);
+    await page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; });
+    await page.locator('#retry-daily').click(); await countIs(page, 1); assert.equal((await gifts(page)).items[0].expression, portrait); assert.equal((await gifts(page)).items[0].text, snapshot);
+    assert.equal(await page.locator('#retry-daily').isVisible(), false); await t.close();
+  });
+
+  for (const damaged of ['new-gifts', 'old-favorites']) {
+    await check(`damaged ${damaged} is preserved and cannot be overwritten by daily collection`, async () => {
+      const key = damaged === 'new-gifts' ? giftKey : prefix + 'favorites';
+      const t = await fresh({ seed: { [key]: '{bad-json' } }); const { page } = t;
+      await page.locator('#open-daily').click(); assert.match(await text(page, '#note-status'), /无法读取/); await countIs(page, 0);
+      assert.equal(await page.evaluate(key => localStorage.getItem(key), key), '{bad-json');
+      await closeNote(page); await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('独立的心事仍能存'); await page.locator('#save-vent').check(); await page.locator('#throw-vent').click(); await countIs(page, 1); await t.close();
+    });
+  }
+
+  await check('invalid expression metadata does not overwrite an existing collection', async () => {
+    const broken = { version: 2, items: [{ ...records(1)[0], expression: '<svg onload=alert(1)>' }] };
+    const t = await fresh({ seed: { [giftKey]: broken } }); await t.page.locator('#open-daily').click(); assert.match(await text(t.page, '#note-status'), /无法读取/); assert.deepEqual(await gifts(t.page), broken); await t.close();
+  });
+
+  await check('separate old damaged data does not block new gifts; private quota failures retain input', async () => {
+    for (const seedKey of ['vents', 'drops', 'visited', 'weather']) {
+      const t = await fresh({ seed: { [prefix + seedKey]: '{bad' } }); await t.page.locator('#open-daily').click(); await countIs(t.page, 1); assert.equal(await t.page.evaluate(key => localStorage.getItem(key), prefix + seedKey), '{bad'); await t.close();
+    }
+    const t = await fresh({ quota: 'vents' }); const { page } = t;
+    await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('保存失败不能丢'); await page.locator('#save-vent').check(); await page.locator('#throw-vent').click();
+    assert.equal(await page.locator('#vent-text').inputValue(), '保存失败不能丢'); assert.equal(await page.locator('#vent-result').isVisible(), false); assert.match(await text(page, '#vent-status'), /没能保存/); await countIs(page, 0); await t.close();
+  });
+
+  await check('mixed homepage has one empty normal bottle and no empty private bottle', async () => {
+    const t = await fresh(); const { page } = t;
+    assert.equal(await cards(page).count(), 1); assert.equal(await cards(page, 'self').count(), 0); assert.equal(await page.locator('#home-shelves .shelf-group').count(), 0);
+    await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('第一颗自己的'); await page.locator('#save-vent').check(); await page.locator('#throw-vent').click();
+    assert.equal(await cards(page).count(), 2); assert.equal(await cards(page, 'self').count(), 1); assert.ok(faces.includes(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'vents'))[0].expression, prefix)));
+    await closeDialog(page, 'vent-dialog'); await page.locator('.hotspot-bottle').click(); await page.locator('[data-collection-group="self"]').click(); assert.equal(await page.locator('#collection-list .bottle-card').count(), 1); await t.close();
+  });
+
+  await check('all bottle count boundaries, water stages and interleaved pagination remain correct', async () => {
+    for (const n of [0, 1, 3, 4, 6, 7, 9, 10, 11, 20, 21]) {
+      const t = await fresh({ pool: fixturePool, seed: { [giftKey]: store(n), [prefix + 'vents']: privateRecords(n) } }); const { page } = t;
+      await countIs(page, n * 2);
+      assert.equal(await cards(page, 'gift').count(), Math.max(1, Math.ceil(n / 10))); assert.equal(await cards(page, 'self').count(), Math.ceil(n / 10));
+      const remainder = n ? ((n - 1) % 10) + 1 : 0;
+      const stage = remainder === 0 ? 0 : remainder <= 3 ? 1 : remainder <= 6 ? 2 : remainder <= 9 ? 3 : 4;
+      assert.equal(await cards(page, 'gift').last().locator('.bottle-svg').getAttribute('data-fill'), String(stage));
+      assert.equal(await page.locator('#hero-bottle g[clip-path] rect').getAttribute('height'), String([2, 31, 55, 76, 87][stage]));
+      if (n) { await cards(page, 'self').last().click(); assert.equal(await page.locator('.bottled-drop').count(), remainder); await closeDialog(page, 'bottle-dialog'); }
+      if (n === 21) { assert.deepEqual(await cards(page).evaluateAll(nodes => nodes.map(node => node.dataset.group)), ['gift', 'self', 'gift', 'self', 'gift', 'self']); await page.screenshot({ path: path.join(results, 'mixed-bottle-shelf.png'), fullPage: true }); }
+      await t.close();
+    }
+    const t = await fresh({ pool: fixturePool, seed: { [giftKey]: store(240), [prefix + 'vents']: privateRecords(2000) } }); const { page } = t;
+    assert.equal(await cards(page).count(), 6); await page.locator('#home-shelves [data-direction="1"]').click(); assert.equal(await cards(page).first().getAttribute('data-bottle'), '3');
+    await cards(page).first().click(); assert.equal(await page.locator('.bottled-drop').count(), 10); assert.ok((await page.locator('body').textContent()).length < 10000); await t.close();
+  });
+
+  await check('private text remains hidden until opened; old date-only drops preserve their dates', async () => {
+    const secret = '<b>不在预览里出现的心事</b>';
+    const t = await fresh({ seed: { [prefix + 'vents']: [{ id: 'private', text: secret, at: '2026-10-19T00:00:00Z' }], [prefix + 'drops']: ['2026-01-01'] } }); const { page } = t;
+    assert.equal((await page.locator('body').textContent()).includes(secret), false);
+    await cards(page, 'self').first().click(); assert.equal((await page.locator('body').textContent()).includes(secret), false);
+    await page.locator('[data-kind="legacy"]').click(); assert.match(await text(page, '#personal-text'), /没有附带文字/); assert.equal(await text(page, '#personal-date'), '2026-01-01'); await closeDialog(page, 'personal-dialog');
+    await page.locator('[data-kind="vent"]').click(); assert.equal(await text(page, '#personal-text'), secret); assert.equal(await page.locator('#personal-text b').count(), 0);
+    await closeDialog(page, 'personal-dialog'); await page.waitForFunction(() => document.getElementById('personal-text').textContent === ''); assert.equal((await page.locator('body').textContent()).includes(secret), false); await t.close();
+  });
+
+  await check('first-person departure recedes, turns, blurs and disappears after five seconds', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('拜托你带走啦'); await page.locator('#throw-vent').click();
+    assert.equal(await page.locator('#skip-departure').isVisible(), true); assert.equal(await page.locator('.little-luggage').count(), 1);
+    await animationFrame(page, '#departure-scene', 0); await page.screenshot({ path: path.join(results, 'doorway-departure-start.png') });
+    const proportions = await page.locator('#departure-scene').evaluate(node => {
+      const opening = node.querySelector('.door-opening').getBBox(), leaf = node.querySelector('.door-leaf').getBBox();
+      return { ratio: opening.width / opening.height, leaf: leaf.width / opening.width };
+    });
+    assert.ok(proportions.ratio > .51 && proportions.ratio < .54); assert.ok(proportions.leaf > .44 && proportions.leaf < .47);
+    const footY = () => page.locator('#departure-scene').evaluate(node => {
+      const root = node.querySelector('svg'), traveler = node.querySelector('.traveler-motion svg');
+      return new DOMPoint(34, 108).matrixTransform(traveler.getScreenCTM()).matrixTransform(root.getScreenCTM().inverse()).y;
+    });
+    assert.ok((await footY()) > 280);
+    await animationFrame(page, '#departure-scene', 1750); assert.ok((await footY()) > 240 && (await footY()) < 249);
+    await page.screenshot({ path: path.join(results, 'doorway-threshold.png') });
+    for (const width of [320, 390, 430, 760, 768, 900, 1280]) {
+      await page.setViewportSize({ width, height: 844 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      const close = await page.locator('#vent-dialog .dialog-header [data-close]').boundingBox(); assert.ok(close.y >= 0 && close.y + close.height <= 844);
+    }
+    await page.setViewportSize({ width: 390, height: 844 }); await animationFrame(page, '#departure-scene', 2900);
+    const middle = await page.locator('.traveler-motion').evaluate(node => { const s = getComputedStyle(node); return { transform: s.transform, filter: s.filter, opacity: s.opacity }; });
+    assert.notEqual(middle.transform, 'none'); assert.match(middle.filter, /blur/); assert.ok(Number(middle.transform.match(/matrix\(([^)]+)\)/)[1].split(',')[0]) < .6);
+    assert.ok((await footY()) > 200 && (await footY()) < 210);
+    await page.screenshot({ path: path.join(results, 'doorway-departure-middle.png') });
+    await animationFrame(page, '#departure-scene', 3900); assert.ok((await footY()) > 175 && (await footY()) < 190);
+    await page.screenshot({ path: path.join(results, 'doorway-departure-far.png') });
+    await animationFrame(page, '#departure-scene', 4900); assert.ok((await footY()) > 155);
+    await page.clock.runFor(5000);
+    assert.equal(await page.locator('#skip-departure').isVisible(), false); assert.equal(await page.locator('.traveler-motion').evaluate(node => getComputedStyle(node).opacity), '0');
+    assert.equal(await page.evaluate(p => localStorage.getItem(p + 'vents'), prefix), null); await countIs(page, 0); await t.close();
+  });
+
+  await check('departure skips, closes and respects reduced motion or background without replay', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('暂时放下'); await page.locator('#throw-vent').click(); await page.locator('#skip-departure').click();
+    assert.equal(await page.locator('#departure-scene').evaluate(node => node.classList.contains('is-travelling')), false);
+    await page.locator('#another-vent').click(); await page.locator('#vent-text').fill('出门吧'); await page.locator('#throw-vent').click(); await closeDialog(page, 'vent-dialog'); await page.clock.runFor(6000);
+    await page.locator('.choice-vent').click(); assert.equal(await page.locator('#vent-form').isVisible(), true); assert.equal(await page.locator('#vent-result').isVisible(), false);
+    await page.locator('#vent-text').fill('后台不重播'); await page.locator('#throw-vent').click(); await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await page.locator('#skip-departure').isVisible(), false); await t.close();
+    const u = await fresh(); await u.page.locator('.choice-vent').click(); await u.page.locator('#vent-text').fill('静态远行'); await u.page.locator('#throw-vent').click(); assert.equal(await u.page.locator('#skip-departure').isVisible(), false); assert.equal(await u.page.locator('#departure-scene').evaluate(node => node.classList.contains('is-static')), true); await u.close();
+  });
+
+  await check('random rounds remain unique; daily and archive readers do not consume the bag', async () => {
+    const t = await fresh({ pool: fixturePool.slice(0, 16), random: true }); const { page } = t;
+    const round = [await openRandom(page)];
+    for (let i = 1; i < 16; i++) {
+      if (i === 4) { await page.locator('#save-note').click(); await closeNote(page); await page.locator('#open-daily').click(); await page.locator('#go-random').click(); await page.locator('.pick-drop').first().click(); round.push(await text(page)); }
+      else round.push(await next(page));
+    }
+    assert.equal(new Set(round).size, 16);
+    const second = [await next(page)]; assert.notEqual(second[0], round.at(-1)); for (let i = 1; i < 16; i++) second.push(await next(page)); assert.equal(new Set(second).size, 16); await t.close();
+  });
+
+  await check('long modal bodies scroll while every close header stays visible', async () => {
+    const longText = '很长的话也要能随时关掉。'.repeat(250);
+    const item = { ...records(1)[0], text: longText };
+    const t = await fresh({ context: { viewport: { width: 390, height: 500 } }, seed: { [giftKey]: { version: 2, items: [item] }, [prefix + 'vents']: [{ id: 'long', text: longText, at: '2026-10-19T00:00:00Z' }] } }); const { page } = t;
+    const fixed = async id => {
+      const before = await page.locator(`#${id} .dialog-header`).boundingBox();
+      await page.locator(`#${id} .dialog-body`).evaluate(node => { node.scrollTop = node.scrollHeight; });
+      const after = await page.locator(`#${id} .dialog-header`).boundingBox(), close = await page.locator(`#${id} .dialog-header [data-close]`).boundingBox();
+      assert.ok(Math.abs(before.y - after.y) < 1); assert.ok(close.y >= 0 && close.y + close.height <= 500); assert.ok(close.height >= 44);
+    };
+    const structures = await page.locator('dialog').evaluateAll(nodes => nodes.every(node => node.querySelector('.dialog-header [data-close]') && node.querySelector('.dialog-body'))); assert.equal(structures, true);
+    await cards(page, 'gift').first().click(); await fixed('bottle-dialog'); await page.locator('.bottled-drop').click(); await fixed('note-dialog'); await page.screenshot({ path: path.join(results, 'fixed-close-long-message.png') }); await closeNote(page); await closeDialog(page, 'bottle-dialog');
+    await cards(page, 'self').first().click(); await page.locator('.bottled-drop').click(); await fixed('personal-dialog'); await closeDialog(page, 'personal-dialog'); await closeDialog(page, 'bottle-dialog');
+    await page.locator('[data-open="privacy-dialog"]').click(); await fixed('privacy-dialog'); await t.close();
+  });
+
+  await check('nested dialogs retain keyboard focus and private deletion repacks the mixed shelf', async () => {
+    const t = await fresh({ seed: { [giftKey]: store(1), [prefix + 'vents']: privateRecords(11) } }); const { page } = t;
+    await page.locator('.hotspot-bottle').click(); await page.locator('#collection-list .bottle-card').first().click(); await page.locator('.bottled-drop').first().click();
+    assert.equal(await page.locator('#note-dialog .dialog-header [data-close]').evaluate(node => node === document.activeElement), true);
+    await page.keyboard.press('Shift+Tab'); assert.equal(await page.locator('#remove-note').evaluate(node => node === document.activeElement), true); await page.keyboard.press('Tab'); assert.equal(await page.locator('#note-dialog .dialog-header [data-close]').evaluate(node => node === document.activeElement), true);
+    await closeNote(page); await closeDialog(page, 'bottle-dialog'); await closeDialog(page, 'collection-dialog');
+    await cards(page, 'self').last().click(); await page.locator('.bottled-drop').click(); await page.locator('#remove-personal').click(); await page.locator('#cancel-remove').click(); await countIs(page, 12);
+    await page.locator('#remove-personal').click(); await page.locator('#confirm-remove').click(); await page.waitForFunction(() => !document.getElementById('personal-dialog').open); await countIs(page, 11); assert.equal(await cards(page, 'self').count(), 1); await t.close();
+  });
+
+  await check('cross-tab collection preserves faces, unique daily IDs and removal tombstones', async () => {
+    const t = await fresh(); const { page, context } = t; const other = await context.newPage(); await other.goto(origin + '/');
+    await page.locator('#open-daily').click(); await other.locator('#open-daily').click(); await countIs(other, 1); assert.equal((await gifts(page)).items.length, 1);
+    await page.locator('#go-random').click(); const expression = await page.locator('.pick-drop').first().getAttribute('data-expression'); await page.locator('.pick-drop').first().click(); await page.locator('#save-note').click();
+    await other.waitForFunction(() => document.getElementById('drop-count').textContent.includes('2滴'));
+    assert.equal((await gifts(other)).items[1].expression, expression);
+    await page.locator('#remove-note').click(); await other.waitForFunction(() => document.getElementById('drop-count').textContent.includes('1滴')); await countIs(other, 1); await t.close();
+  });
+
+  await check('reading girl layers over all three weathers, loads locally on demand and respects motion preferences', async () => {
+    const t = await fresh({ subdir: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    const assetName = 'quiet-reading-foreground-v1.png'; let requests = 0;
+    page.on('request', request => { if (request.url().endsWith(assetName)) requests++; });
+    assert.equal(await page.locator('#quiet-foreground').getAttribute('href'), null);
+    const loaded = page.waitForResponse(response => response.url().endsWith(assetName));
+    await page.locator('.choice-quiet').click(); const response = await loaded; assert.equal(response.status(), 200); assert.match(response.headers()['content-type'], /image\/png/);
+    await page.locator('#quiet-scene.has-reading-art').waitFor(); assert.equal(requests, 1);
+    assert.equal(await page.locator('#quiet-foreground').evaluate(node => node.getAnimations({ subtree: true }).length), 0);
+    const foreground = await page.locator('#quiet-foreground').getAttribute('href');
+    const motion = () => page.locator('.tea-steam path').first().evaluate(node => getComputedStyle(node).animationPlayState);
+    assert.equal(await motion(), 'running');
+    for (const weather of ['rain', 'cloudy', 'sunny']) {
+      await page.locator(`.weather-button[data-weather="${weather}"]`).click();
+      await page.waitForFunction(weather => {
+        const rain = getComputedStyle(document.querySelector('.weather-rain')).opacity;
+        const sun = getComputedStyle(document.querySelector('.weather-sun')).opacity;
+        return weather === 'rain' ? rain === '1' : rain === '0' && (weather !== 'sunny' || sun === '1');
+      }, weather);
+      assert.equal(await page.locator('#quiet-scene').getAttribute('data-weather'), weather);
+      assert.match(await text(page, '#quiet-scene-description'), /小女孩.*读书/);
+      assert.equal(await page.locator('#quiet-foreground').getAttribute('href'), foreground);
+      if (weather !== 'rain') assert.equal(await page.locator('.weather-rain').evaluate(node => getComputedStyle(node).opacity), '0');
+      await page.screenshot({ path: path.join(results, `quiet-reading-${weather}-390.png`) });
+    }
+    await page.locator('#toggle-rain').click(); assert.equal(await motion(), 'paused');
+    await page.locator('#toggle-rain').click(); assert.equal(await motion(), 'running');
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await motion(), 'paused');
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await motion(), 'running');
+    for (const width of [320, 390, 430, 760, 768, 900, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      const bounds = await page.locator('#quiet-scene').evaluate(node => {
+        const dialog = node.closest('dialog'), body = dialog.querySelector('.dialog-body'), scene = node.getBoundingClientRect(), container = body.getBoundingClientRect();
+        return { overflow: document.documentElement.scrollWidth > innerWidth || body.scrollWidth > body.clientWidth, left: scene.left >= container.left, right: scene.right <= container.right };
+      });
+      assert.deepEqual(bounds, { overflow: false, left: true, right: true }, `Quiet scene overflow at ${width}`);
+    }
+    await page.screenshot({ path: path.join(results, 'quiet-reading-desktop.png') });
+    await page.setViewportSize({ width: 320, height: 500 }); await page.addStyleTag({ content: '#quiet-dialog button,#quiet-dialog p{font-size:24px!important}' });
+    await page.locator('#quiet-dialog .dialog-body').evaluate(node => { node.scrollTop = node.scrollHeight; });
+    const close = await page.locator('#quiet-dialog .dialog-header [data-close]').boundingBox(); assert.ok(close.y >= 0 && close.y + close.height <= 500);
+    assert.equal(await page.locator('#quiet-dialog .dialog-body').evaluate(node => node.scrollWidth > node.clientWidth), false);
+    await closeDialog(page, 'quiet-dialog'); assert.equal(await motion(), 'paused');
+    assert.equal(await page.locator('.choice-quiet').evaluate(node => node === document.activeElement), true);
+    await page.locator('.choice-quiet').click(); assert.equal(requests, 1);
+    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#toggle-rain:disabled').waitFor({ state: 'attached' });
+    assert.equal(await page.locator('.tea-steam path').first().evaluate(node => getComputedStyle(node).animationName), 'none');
+    assert.equal(await page.locator('#quiet-foreground').getAttribute('href'), foreground); await t.close();
+  });
+
+  await check('disabled storage, IME drafts, quiet preferences and future dates still work', async () => {
+    const t = await fresh({ blocked: true }); const { page } = t;
+    await page.locator('#open-daily').click(); assert.ok((await text(page)).length); await countIs(page, 0); assert.match(await text(page, '#note-status'), /无法读取/); await closeNote(page);
+    await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('带走但不留'); await page.locator('#throw-vent').click(); assert.equal(await page.locator('#vent-result').isVisible(), true); await closeDialog(page, 'vent-dialog'); await page.locator('.choice-quiet').click(); await page.locator('.weather-button[data-weather="sunny"]').click(); assert.equal(await page.locator('#quiet-scene').getAttribute('data-weather'), 'sunny'); await t.close();
+    const u = await fresh({ seed: { [prefix + 'weather']: JSON.stringify('sunny'), [prefix + 'rain-paused']: true }, letters: [{ id: 'future', title: '留到下一刻', text: '后来的一点幸运', unlockAt: '2026-10-19T06:00:00Z' }] });
+    await u.page.locator('.choice-vent').click(); await u.page.locator('#vent-text').dispatchEvent('compositionstart'); await u.page.locator('#vent-text').fill('组合输入的心事'); await u.page.locator('#vent-text').dispatchEvent('compositionend', { data: '心事' }); await closeDialog(u.page, 'vent-dialog'); await u.page.locator('.choice-vent').click(); assert.equal(await u.page.locator('#vent-text').inputValue(), '组合输入的心事'); await closeDialog(u.page, 'vent-dialog');
+    await u.page.locator('.choice-quiet').click(); assert.equal(await u.page.locator('#quiet-scene').getAttribute('data-weather'), 'sunny'); assert.equal(await u.page.locator('#quiet-scene').evaluate(node => node.classList.contains('is-still')), true); await closeDialog(u.page, 'quiet-dialog');
+    await u.page.locator('#open-future').click(); assert.equal((await text(u.page, '#future-list')).includes('后来的一点幸运'), false); await closeDialog(u.page, 'future-dialog'); await u.page.clock.setFixedTime(new Date('2026-10-19T06:00:00Z')); await u.page.locator('#open-future').click(); assert.equal((await text(u.page, '#future-list')).includes('后来的一点幸运'), true); await u.close();
+  });
+
+  await check('daily IDs follow the device local date rather than UTC', async () => {
+    for (const timezoneId of ['Asia/Tokyo', 'America/Los_Angeles']) {
+      const t = await fresh({ context: { timezoneId } }); await t.page.clock.setFixedTime(new Date('2026-10-19T00:30:00+09:00')); await t.page.locator('#open-daily').click(); assert.equal((await gifts(t.page)).items[0].day, timezoneId === 'Asia/Tokyo' ? '2026-10-19' : '2026-10-18'); await t.close();
+    }
+  });
+
+  await check('empty content pools never create phantom daily records', async () => {
+    const t = await fresh({ pool: [] }); await t.page.locator('#open-daily').click(); await countIs(t.page, 0); assert.equal(await gifts(t.page), null); assert.equal(await t.page.locator('#retry-daily').isVisible(), false); await t.close();
+  });
+
+  await check('all viewport widths and large text reflow, with no extra runtime requests', async () => {
+    const t = await fresh({ subdir: true }); const { page } = t;
+    for (const width of [320, 390, 430, 760, 768, 900, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      const bounds = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth, daily: document.getElementById('open-daily').getBoundingClientRect().bottom }));
+      assert.equal(bounds.overflow, false, `Overflow ${width}`); assert.ok(bounds.daily < 700, `Daily button below fold at ${width}`);
+      if ([390, 768, 1280].includes(width)) await page.screenshot({ path: path.join(results, `experience-home-${width}.png`), fullPage: true });
+    }
+    await page.setViewportSize({ width: 320, height: 640 }); await page.addStyleTag({ content: 'button,p,span{font-size:28px!important} h1{font-size:52px!important}' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.locator('#open-daily').click(); await page.locator('#note-dialog .dialog-body').evaluate(node => { node.scrollTop = node.scrollHeight; });
+    const close = await page.locator('#note-dialog .dialog-header [data-close]').boundingBox(); assert.ok(close.y >= 0 && close.y + close.height <= 640); await t.close();
+  });
+
+  await check('soft primary and secondary buttons keep readable contrast', async () => {
+    const t = await fresh(); const { page } = t; await openRandom(page);
+    const colors = await page.locator('#save-note,#next-note,#open-daily').evaluateAll(nodes => {
+      const rgb = css => css.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const light = c => c.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((n, v, i) => n + v * [.2126, .7152, .0722][i], 0);
+      return nodes.map(node => { const s = getComputedStyle(node), a = light(rgb(s.color)), b = light(rgb(s.backgroundColor)); return { background: s.backgroundColor, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) }; });
+    });
+    for (const value of colors) { assert.ok(value.ratio >= 4.5); assert.notEqual(value.background, 'rgb(79, 102, 83)'); }
+    await page.screenshot({ path: path.join(results, 'expression-reader.png') }); await t.close();
+  });
+  console.log(`\n${passed} browser checks passed. Screenshots: ${results}`);
+})().catch(async error => { console.error(error); process.exitCode = 1; try { const page = browser?.contexts().at(-1)?.pages().at(-1); if (page) await page.screenshot({ path: path.join(results, 'failure.png') }); } catch {} }).finally(async () => {
+  if (browser) await browser.close();
+  await new Promise(resolve => server.close(resolve));
+});

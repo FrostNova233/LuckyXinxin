@@ -119,26 +119,28 @@ async function next(page) { await page.locator('#next-note').click(); await page
   }
   const hasCelebration = page => page.locator('#lucky-celebration').evaluate(node => node.matches(':popover-open'));
 
-  await check('lucky: messages gain only a small emoji suffix and the lucky content stays outside the ordinary pool', async () => {
+  await check('lucky: messages retain their words with small emoji suffix changes and lucky content stays outside the ordinary pool', async () => {
     const baseline = { window: {} };
-    require('node:vm').runInNewContext(require('node:child_process').execFileSync('git', ['show', '17b38f4:content.js'], { encoding: 'utf8' }), baseline);
+    require('node:vm').runInNewContext(require('node:child_process').execFileSync('git', ['show', '0d25fde:content.js'], { encoding: 'utf8' }), baseline);
     const t = await fresh({ lucky: true });
     const data = await t.page.evaluate(() => window.EMOTION_BOX_CONTENT);
     assert.equal(data.messages.length, 64); assert.equal(data.superLucky.id, 'super-lucky-01');
     assert.equal(data.messages.some(item => item.id === data.superLucky.id), false);
     let changed = 0;
     for (const message of data.messages) {
-      const old = baseline.window.EMOTION_BOX_CONTENT.messages.find(item => item.id === message.id).text;
+      let old = baseline.window.EMOTION_BOX_CONTENT.messages.find(item => item.id === message.id).text;
+      // The available pre-lucky commit includes a hug later replaced by a bed.
+      if (message.id === 'rest-11') { assert.ok(old.endsWith('🫂')); old = old.slice(0, -'🫂'.length); }
       assert.ok(message.text.startsWith(old));
       if (message.text !== old) { changed++; assert.equal([...new Intl.Segmenter('zh', { granularity: 'grapheme' }).segment(message.text.slice(old.length))].length, 1); }
     }
     assert.ok(changed >= 12 && changed <= 24); await t.close();
   });
 
-  await check('lucky: the exact 10 percent boundary supports repeat encounters and stable retry identities', async () => {
+  await check('lucky: the base boundary supports repeat encounters and stable retry identities', async () => {
     const t = await fresh({ lucky: true }); const { page } = t;
-    await drawWithRoll(page, .10); assert.equal(await page.locator('#note-reader').evaluate(node => node.classList.contains('is-super-lucky')), false);
-    await drawWithRoll(page, .099999); assert.match(await text(page), /好运爆棚/); await countIs(page, 0);
+    await drawWithRoll(page, .05); assert.equal(await page.locator('#note-reader').evaluate(node => node.classList.contains('is-super-lucky')), false);
+    await drawWithRoll(page, .049999); assert.match(await text(page), /好运爆棚/); await countIs(page, 0);
     assert.equal(await page.locator('#reader-mascot .lucky-mascot').count(), 1); assert.equal(await page.locator('#lucky-date').isVisible(), true);
     await page.locator('#save-note').click(); const first = (await gifts(page)).items[0];
     assert.equal(first.source, 'lucky'); assert.equal(first.special, 'super-lucky'); assert.ok(Number.isFinite(Date.parse(first.at)));
@@ -154,6 +156,143 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await failed.page.locator('#save-note').evaluate(node => node.click()); assert.deepEqual((await gifts(failed.page)).items, [retried]); await failed.close();
   });
 
+  const progressKey = prefix + 'lucky-progress';
+  const progress = (misses = 0, daily = null) => ({ version: 2, misses, daily });
+  const readProgress = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), progressKey);
+  const setProgress = (page, value) => page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: progressKey, value });
+  const specialShown = page => page.locator('#note-reader').evaluate(node => node.classList.contains('is-super-lucky'));
+
+  await check('lucky: five percent base and every pity threshold include the lower value and exclude the exact probability', async () => {
+    const t = await fresh({ lucky: true }); const { page } = t;
+    const probabilities = [...Array(15).fill(.05), .10, .15, .20, .25, .30, 1];
+    for (let misses = 0; misses <= 20; misses++) {
+      const probability = probabilities[misses];
+      await setProgress(page, progress(misses)); await drawWithRoll(page, probability - .000001);
+      assert.equal(await specialShown(page), true, 'misses=' + misses);
+      assert.deepEqual(await readProgress(page), progress());
+      if (probability < 1) {
+        await setProgress(page, progress(misses)); await drawWithRoll(page, probability);
+        assert.equal(await specialShown(page), false, 'misses=' + misses);
+        assert.deepEqual(await readProgress(page), progress(misses + 1));
+      }
+    }
+    await countIs(page, 0); await t.close();
+  });
+
+  await check('lucky: the twenty-first draw is guaranteed and consecutive hits always return to five percent', async () => {
+    const t = await fresh({ lucky: true }); const { page } = t;
+    for (let attempt = 1; attempt <= 20; attempt++) {
+      await drawWithRoll(page, .999999); assert.equal(await specialShown(page), false);
+      assert.deepEqual(await readProgress(page), progress(attempt));
+      if (attempt === 15) { await closeNote(page); await page.reload(); }
+    }
+    await drawWithRoll(page, .999999); assert.equal(await specialShown(page), true);
+    assert.deepEqual(await readProgress(page), progress());
+    for (let hit = 0; hit < 7; hit++) {
+      await drawWithRoll(page, .049999); assert.equal(await specialShown(page), true);
+      assert.deepEqual(await readProgress(page), progress());
+    }
+    await drawWithRoll(page, .05); assert.equal(await specialShown(page), false);
+    assert.deepEqual(await readProgress(page), progress(1)); await t.close();
+  });
+
+  await check('lucky: daily and random share progress while rereading, saving, reloads and sequential tabs do not add draws', async () => {
+    const t = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items: [luckyRecord()] }, [progressKey]: progress(14) } });
+    const { page, context } = t;
+    await page.evaluate(() => { Math.random = () => .99; });
+    await page.locator('#open-daily').click(); const daily = (await gifts(page)).items[1];
+    assert.equal(daily.special, undefined); assert.deepEqual(await readProgress(page), progress(15, daily));
+    await closeNote(page); await page.evaluate(() => { Math.random = () => 0; });
+    await page.locator('#open-daily').click(); assert.equal(await text(page), daily.text);
+    assert.deepEqual(await readProgress(page), progress(15, daily)); await closeNote(page);
+    await cards(page).first().click(); await page.locator('.bottled-drop.is-super-lucky').click();
+    assert.deepEqual(await readProgress(page), progress(15, daily));
+    await closeNote(page); await closeDialog(page, 'bottle-dialog');
+    await drawWithRoll(page, .099999); assert.equal(await specialShown(page), true);
+    await page.locator('#save-note').click(); await page.locator('#save-note').evaluate(node => node.click());
+    assert.deepEqual(await readProgress(page), progress(0, daily));
+    await closeNote(page); await page.reload();
+    await drawWithRoll(page, .05); assert.equal(await specialShown(page), false);
+    const other = await context.newPage(); await other.goto(origin + '/');
+    await drawWithRoll(other, .049999); assert.equal(await specialShown(other), true);
+    assert.deepEqual(await readProgress(page), progress(0, daily));
+    await drawWithRoll(page, .05); assert.equal(await specialShown(page), false);
+    assert.deepEqual(await readProgress(other), progress(1, daily)); await t.close();
+  });
+
+  await check('lucky: alternating daily and random encounters reach one shared twenty-first guarantee', async () => {
+    const t = await fresh({ lucky: true }); const { page } = t;
+    for (let attempt = 1; attempt <= 21; attempt++) {
+      if (attempt % 2) {
+        await page.clock.setFixedTime(new Date(Date.UTC(2026, 10, 1 + Math.floor(attempt / 2), 3)));
+        await page.evaluate(() => { Math.random = () => .999999; }); await page.locator('#open-daily').click();
+      } else await drawWithRoll(page, .999999);
+      assert.equal(await specialShown(page), attempt === 21);
+      assert.equal((await readProgress(page)).misses, attempt === 21 ? 0 : attempt);
+      await closeNote(page);
+    }
+    await countIs(page, 11); await t.close();
+  });
+
+  await check('lucky: cancelled and background catches in either entry never advance probability progress', async () => {
+    const t = await fresh({ lucky: true, context: { reducedMotion: 'no-preference' }, seed: { [progressKey]: progress(15) } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-20T12:00:00+09:00'));
+    for (const daily of [false, true]) {
+      const start = async () => { if (daily) await page.locator('#open-daily').click(); else { await page.locator('.choice-note').click(); await page.locator('.pick-drop').first().click(); } };
+      await start(); await page.clock.runFor(500); await closeNote(page); await page.clock.runFor(1500);
+      assert.deepEqual(await readProgress(page), progress(15));
+      await start();
+      await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+      await page.clock.runFor(1500); assert.deepEqual(await readProgress(page), progress(15));
+      await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+      if (!daily) await closeNote(page); else assert.equal(await page.locator('#note-dialog').evaluate(node => node.open), false);
+    }
+    await countIs(page, 0); await t.close();
+  });
+
+  await check('lucky: failed progress writes keep advancing in memory and persist after storage recovers', async () => {
+    const t = await fresh({ lucky: true, quota: 'lucky-progress', seed: { [progressKey]: progress(14) } }); const { page } = t;
+    await drawWithRoll(page, .05); assert.equal(await specialShown(page), false);
+    assert.deepEqual(await readProgress(page), progress(14));
+    await drawWithRoll(page, .09); assert.equal(await specialShown(page), true);
+    await page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; });
+    await drawWithRoll(page, .05); assert.equal(await specialShown(page), false);
+    assert.deepEqual(await readProgress(page), progress(1));
+    await closeNote(page); await page.reload(); await drawWithRoll(page, .049999);
+    assert.equal(await specialShown(page), true); await t.close();
+  });
+
+  await check('lucky: legacy progress preserves misses, removes hit penalties and leaves saved snapshots unchanged', async () => {
+    for (const legacy of [{ version: 1, hits: 0, misses: 15 }, { version: 1, hits: 0, misses: 18 }, { version: 1, hits: 5, misses: 0 }]) {
+      const item = luckyRecord();
+      const t = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items: [item] }, [progressKey]: legacy } });
+      await drawWithRoll(t.page, legacy.misses === 18 ? .249999 : legacy.misses ? .099999 : .049999);
+      assert.equal(await specialShown(t.page), true); assert.deepEqual(await readProgress(t.page), progress());
+      assert.deepEqual((await gifts(t.page)).items, [item]); await t.close();
+    }
+  });
+
+  await check('lucky: unreadable progress is preserved and blocked storage still allows draws in this page', async () => {
+    for (const value of ['{broken', { version: 99, misses: 0 }, { version: 1, hits: 1, misses: 1 }, progress(-1), progress(21), progress(.5), progress(0, { source: 'daily' })]) {
+      const t = await fresh({ lucky: true, seed: { [progressKey]: value } }); const { page } = t;
+      const before = await page.evaluate(key => localStorage.getItem(key), progressKey);
+      await drawWithRoll(page, .049999); assert.equal(await specialShown(page), true);
+      await drawWithRoll(page, .05); assert.equal(await specialShown(page), false);
+      assert.equal(await page.evaluate(key => localStorage.getItem(key), progressKey), before);
+      await page.locator('#save-note').click(); await countIs(page, 1); await t.close();
+    }
+    const blocked = await fresh({ lucky: true, blocked: true });
+    await drawWithRoll(blocked.page, .049999); assert.equal(await specialShown(blocked.page), true);
+    await drawWithRoll(blocked.page, .049999); assert.equal(await specialShown(blocked.page), true);
+    await drawWithRoll(blocked.page, .05); assert.equal(await specialShown(blocked.page), false);
+    await closeNote(blocked.page); await blocked.page.evaluate(() => { Math.random = () => .049999; });
+    await blocked.page.locator('#open-daily').click(); const dailyText = await text(blocked.page);
+    assert.equal(await specialShown(blocked.page), true); await closeNote(blocked.page);
+    await blocked.page.evaluate(() => { Math.random = () => .99; }); await blocked.page.locator('#open-daily').click();
+    assert.equal(await text(blocked.page), dailyText); assert.equal(await specialShown(blocked.page), true);
+    await blocked.close();
+  });
+
   await check('lucky: a special encounter leaves the ordinary shuffle queue and expressions intact', async () => {
     const a = await fresh({ lucky: true, pool: fixturePool.slice(0, 6) }), b = await fresh({ lucky: true, pool: fixturePool.slice(0, 6) });
     assert.equal(await drawWithRoll(a.page, .5), await drawWithRoll(b.page, .5));
@@ -167,12 +306,15 @@ async function next(page) { await page.locator('#next-note').click(); await page
   await check('lucky: daily outcomes remain fixed, auto-save once and respect old snapshots', async () => {
     const t = await fresh({ lucky: true }); const { page } = t;
     await page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00'));
+    await page.evaluate(() => { Math.random = () => 0; });
     await page.locator('#open-daily').click(); await countIs(page, 1);
     const daily = (await gifts(page)).items[0]; assert.equal(daily.special, 'super-lucky'); assert.equal(daily.source, 'daily'); assert.equal(daily.day, '2026-11-04');
+    assert.deepEqual(await readProgress(page), progress(0, daily));
     assert.equal(await hasCelebration(page), true); await closeDialog(page, 'note-dialog');
     await page.locator('#open-daily').click(); assert.deepEqual((await gifts(page)).items, [daily]); assert.equal(await hasCelebration(page), false);
     await closeDialog(page, 'note-dialog'); await page.reload(); await page.locator('#open-daily').click(); assert.equal(await hasCelebration(page), false);
-    await closeDialog(page, 'note-dialog'); await page.clock.setFixedTime(new Date('2026-11-05T12:00:00+09:00')); await page.locator('#open-daily').click();
+    await closeDialog(page, 'note-dialog'); await page.clock.setFixedTime(new Date('2026-11-05T12:00:00+09:00'));
+    await page.evaluate(() => { Math.random = () => .05; }); await page.locator('#open-daily').click();
     assert.equal((await gifts(page)).items[1].special, undefined); await t.close();
     const old = { ...luckyDaily, text: '以前存好的普通赠言' }; delete old.special;
     const snapshot = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items: [old] } } });
@@ -182,14 +324,38 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('lucky: daily interruption and failed writes preserve the same surprise and never report a false collection', async () => {
     const t = await fresh({ lucky: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
-    await page.clock.pauseAt(new Date('2026-11-04T12:00:00+09:00')); await page.locator('#open-daily').click(); await page.clock.runFor(500);
+    await page.clock.pauseAt(new Date('2026-11-04T12:00:00+09:00'));
+    await page.evaluate(() => { Math.random = () => 0; }); await page.locator('#open-daily').click(); await page.clock.runFor(500);
     await closeDialog(page, 'note-dialog'); await page.clock.runFor(1500); await countIs(page, 0); assert.equal(await hasCelebration(page), false);
     await page.locator('#open-daily').click(); await page.clock.runFor(1300); assert.equal((await gifts(page)).items[0].special, 'super-lucky'); await t.close();
     const failed = await fresh({ lucky: true, quota: 'gift-drops' }); await failed.page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00'));
+    await failed.page.evaluate(() => { Math.random = () => 0; });
     await failed.page.locator('#open-daily').click(); const wording = await text(failed.page); assert.match(wording, /超级幸运/);
     await countIs(failed.page, 0); assert.match(await text(failed.page, '#note-status'), /没能保存/);
+    const daily = (await readProgress(failed.page)).daily;
+    await closeNote(failed.page); await drawWithRoll(failed.page, .05);
+    assert.deepEqual(await readProgress(failed.page), progress(1, daily));
+    await closeNote(failed.page); await failed.page.reload(); await failed.page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00'));
+    await failed.page.evaluate(() => { Math.random = () => .99; }); await failed.page.locator('#open-daily').click();
+    assert.equal(await text(failed.page), wording); assert.deepEqual(await readProgress(failed.page), progress(1, daily));
+    assert.equal(await hasCelebration(failed.page), false);
     await failed.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; }); await failed.page.locator('#retry-daily').click();
-    assert.equal((await gifts(failed.page)).items[0].text, wording); assert.equal(await text(failed.page, '#note-status'), '超级幸运已放进瓶子里。✨'); await failed.close();
+    assert.deepEqual((await gifts(failed.page)).items, [daily]); assert.deepEqual(await readProgress(failed.page), progress(1, daily));
+    assert.equal(await text(failed.page, '#note-status'), '超级幸运已放进瓶子里。✨'); await failed.close();
+  });
+
+  await check('lucky: a daily result saved by another tab during animation wins without consuming another draw', async () => {
+    const t = await fresh({ lucky: true, context: { reducedMotion: 'no-preference' }, seed: { [progressKey]: progress(15) } });
+    const { page, context } = t; await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    await page.locator('#open-daily').click(); await page.clock.runFor(500);
+    const other = await context.newPage(); await other.emulateMedia({ reducedMotion: 'reduce' });
+    await other.clock.install({ time: new Date('2026-10-19T15:00:00+09:00') }); await other.goto(origin + '/');
+    await other.evaluate(() => { Math.random = () => .99; }); await other.locator('#open-daily').click();
+    const daily = (await gifts(other)).items[0]; const state = await readProgress(other);
+    await page.evaluate(() => { Math.random = () => 0; }); await page.clock.runFor(800);
+    assert.equal(await text(page), daily.text); assert.equal(await specialShown(page), false);
+    assert.deepEqual(await readProgress(page), state); assert.equal(state.misses, 16);
+    await countIs(page, 1); await t.close();
   });
 
   await check('lucky: celebrations cover the viewport above the reader, pass input through, and stop on time or interruption', async () => {
@@ -232,14 +398,17 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('lucky: backups retain encounter IDs, dates, flags and separate lucky counts without current content', async () => {
     const items = [...records(1), luckyRecord('a'), luckyRecord('b'), luckyDaily];
-    const t = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items } } }); const { page } = t;
+    const t = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items }, [progressKey]: progress(2) } }); const { page } = t;
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.__luckyBackup = value; } } }));
     await page.locator('[data-open="privacy-dialog"]').click(); await page.locator('#backup-copy').click();
-    await page.waitForFunction(() => !!window.__luckyBackup); const backup = await page.evaluate(() => window.__luckyBackup); assert.deepEqual(JSON.parse(backup).gifts, items); await t.close();
-    const restored = await fresh(); await openRestore(restored.page); await inspectBackup(restored.page, backup);
+    await page.waitForFunction(() => !!window.__luckyBackup); const backup = await page.evaluate(() => window.__luckyBackup); assert.deepEqual(JSON.parse(backup).gifts, items);
+    assert.deepEqual(Object.keys(JSON.parse(backup)).sort(), ['exportedAt', 'format', 'gifts', 'legacyDays', 'vents', 'version']);
+    assert.deepEqual(await readProgress(page), progress(2)); await t.close();
+    const restored = await fresh({ seed: { [progressKey]: progress(10) } }); await openRestore(restored.page); await inspectBackup(restored.page, backup);
     assert.match(await text(restored.page, '#backup-summary'), /超级幸运：新增 3，重复 0/); assert.match(await text(restored.page, '#backup-summary'), /今日雨滴：新增 0，重复 0/);
     await restored.page.locator('#backup-confirm').click(); assert.deepEqual((await gifts(restored.page)).items, items);
     await restored.page.locator('#backup-check').click(); await restored.page.locator('#backup-confirm').click(); await countIs(restored.page, 4);
+    assert.deepEqual(await readProgress(restored.page), progress(10));
     await closeDialog(restored.page, 'backup-dialog'); await closeDialog(restored.page, 'privacy-dialog');
     await cards(restored.page).first().click(); await restored.page.locator('.bottled-drop.is-super-lucky').first().click(); assert.equal(await text(restored.page), items[1].text);
     assert.equal(await restored.page.locator('#reader-mascot .lucky-mascot').count(), 1); await restored.close();

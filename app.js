@@ -4,19 +4,11 @@
   const $ = id => document.getElementById(id);
   const prefix = 'lucky-everyday:xinxin:v1:';
   // Legacy keys stay readable; the versioned gift store holds snapshots and faces.
-  const keys = { favorites: `${prefix}favorites`, vents: `${prefix}vents`, paused: `${prefix}rain-paused`, weather: `${prefix}weather`, visited: `${prefix}visited`, drops: `${prefix}drops`, gifts: 'lucky-everyday:xinxin:v2:gift-drops' };
+  const keys = { favorites: `${prefix}favorites`, vents: `${prefix}vents`, paused: `${prefix}rain-paused`, weather: `${prefix}weather`, visited: `${prefix}visited`, drops: `${prefix}drops`, luckyProgress: `${prefix}lucky-progress`, gifts: 'lucky-everyday:xinxin:v2:gift-drops' };
   const messages = content.messages.filter(m => m && typeof m.id === 'string' && typeof m.text === 'string');
   const messageMap = new Map(messages.map(m => [m.id, m]));
   const luckyContent = content.superLucky && typeof content.superLucky.id === 'string' && typeof content.superLucky.text === 'string' ? content.superLucky : null;
   const isSpecial = item => item?.special === 'super-lucky';
-  const luckyHit = value => value >= 0 && value < .10;
-  function dayIsLucky(day) {
-    // A fixed, separate date hash keeps today's surprise stable before it is saved.
-    let hash = 2166136261;
-    for (const char of `super-lucky-v1:${day}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
-    hash ^= hash >>> 16; hash = Math.imul(hash, 0x85ebca6b); hash ^= hash >>> 13;
-    return luckyHit((hash >>> 0) / 4294967296);
-  }
   const readProblems = new Set();
   const art = window.BOTTLE_ART, faceNames = art.names, faceIds = Object.keys(faceNames);
   const validFace = face => Object.hasOwn(faceNames, face);
@@ -43,6 +35,30 @@
     if (readProblems.has(key)) { if (status) status.textContent = readWarning; return false; }
     try { localStorage.setItem(key, JSON.stringify(value)); return true; }
     catch { if (status) status.textContent = '这次没能保存，可能是浏览器限制或空间不足。还没有存进瓶子里，写下的内容会为你保留。'; return false; }
+  }
+  const emptyLuckyProgress = () => ({ version: 2, misses: 0, daily: null });
+  const isLegacyLuckyProgress = value => value && value.version === 1 &&
+    Number.isInteger(value.hits) && value.hits >= 0 && value.hits <= 5 &&
+    Number.isInteger(value.misses) && value.misses >= 0 && value.misses <= 18 &&
+    (value.hits === 0 || value.misses === 0);
+  const isLuckyProgress = value => isLegacyLuckyProgress(value) || value && value.version === 2 &&
+    Number.isInteger(value.misses) && value.misses >= 0 && value.misses <= 20 &&
+    (value.daily === null || value.daily?.source === 'daily' && isGiftStore({ version: 2, items: [value.daily] }));
+  let luckyProgress = emptyLuckyProgress(), luckyProgressPending = false;
+  function drawLucky(dailyEntry = null) {
+    // Read the latest shared progress before each draw. Keep unsaved progress in
+    // memory after a storage failure, rather than rolling it back on the next draw.
+    if (!luckyProgressPending) luckyProgress = read(keys.luckyProgress, isLuckyProgress, luckyProgress, emptyLuckyProgress());
+    if (luckyProgress.version === 1) luckyProgress = { version: 2, misses: luckyProgress.misses, daily: null };
+    // Cache only the latest daily snapshot alongside the counter, in the same
+    // write, so reopening after a failed collection write cannot draw it again.
+    if (dailyEntry && luckyProgress.daily?.day === dailyEntry.day) return { hit: isSpecial(luckyProgress.daily), entry: luckyProgress.daily, isNew: false };
+    const percent = luckyProgress.misses >= 20 ? 100 : 5 + Math.max(0, luckyProgress.misses - 14) * 5;
+    const hit = Math.random() < percent / 100;
+    const entry = dailyEntry ? { ...dailyEntry, ...(hit ? { messageId: luckyContent.id, text: luckyContent.text, special: 'super-lucky' } : {}) } : null;
+    luckyProgress = { version: 2, misses: hit ? 0 : luckyProgress.misses + 1, daily: entry || luckyProgress.daily };
+    luckyProgressPending = !write(keys.luckyProgress, luckyProgress);
+    return { hit, entry, isNew: true };
   }
   const isGiftStore = store => store && store.version === 2 && Array.isArray(store.items) && new Set(store.items.map(item => item?.id)).size === store.items.length && store.items.every(item =>
     item && typeof item.messageId === 'string' && validFace(item.expression) &&
@@ -281,9 +297,9 @@
     updateDailyEntry();
     const day = localDay(), id = `daily:${day}`, existing = giftItems.find(item => item.id === id);
     if (existing) { showNote(existing, 'daily'); return; }
-    const special = Boolean(luckyContent && messages.length && dayIsLucky(day)), message = special ? luckyContent : dailyNote();
+    const message = dailyNote();
     if (!message) { showNote(null, 'daily'); return; }
-    const entry = { id, source: 'daily', day, messageId: message.id, text: message.text, expression: stableFace(id), ...(special ? { special: 'super-lucky' } : {}) };
+    const entry = { id, source: 'daily', day, messageId: message.id, text: message.text, expression: stableFace(id) };
     startCatch(entry.expression, entry);
   }
   $('open-daily').addEventListener('click', openDaily);
@@ -419,16 +435,21 @@
     const { expression, dailyEntry } = pendingCatch;
     cancelNoteReveal();
     if (document.hidden) {
-      if (dailyEntry) showNote(dailyEntry, 'daily'); else resetPicker();
+      if (dailyEntry) { $('note-dialog').close(); return; }
+      resetPicker();
       $('note-status').textContent = '刚才先暂停了，回来后再接住也可以。'; return;
     }
     if (dailyEntry) {
-      current = dailyEntry;
-      const status = el('p'); const saved = saveGift(dailyEntry, status);
+      // Another tab may have collected today's drop while this animation ran.
+      giftItems = loadGifts(giftItems);
+      const existing = giftItems.find(item => item.id === dailyEntry.id);
+      const result = !existing && luckyContent ? drawLucky(dailyEntry) : null;
+      current = existing || result?.entry || dailyEntry;
+      const status = el('p'); const saved = saveGift(current, status);
       showNote(current, 'daily');
       if (!saved) $('note-status').textContent = status.textContent;
       renderCollections();
-      if (isSpecial(current)) celebrateLucky();
+      if (result?.isNew && isSpecial(current)) celebrateLucky();
     } else nextNote(expression);
   }
   function startCatch(expression, dailyEntry = null) {
@@ -443,7 +464,7 @@
     else { $('catch-panel').classList.add('is-catching'); noteTimer = setTimeout(() => completeCatch(version), 1300); }
   }
   function nextNote(expression) {
-    if (luckyContent && luckyHit(Math.random())) {
+    if (luckyContent && drawLucky().hit) {
       const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${++luckySequence}`;
       showNote({ id: `lucky:${id}`, source: 'lucky', messageId: luckyContent.id, text: luckyContent.text, expression, at: new Date().toISOString(), special: 'super-lucky' }, 'random');
       celebrateLucky(); return;

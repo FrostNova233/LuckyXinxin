@@ -27,7 +27,7 @@ async function fresh(options = {}) {
   });
   const page = await context.newPage();
   page.on('pageerror', error => issues.push(error.message));
-  await page.addInitScript(({ seed, blocked, quota, pool, random, letters }) => {
+  await page.addInitScript(({ seed, blocked, quota, pool, random, letters, lucky }) => {
     if (!sessionStorage.getItem('test-seeded')) {
       for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
       sessionStorage.setItem('test-seeded', 'yes');
@@ -45,14 +45,15 @@ async function fresh(options = {}) {
       let state = 123456;
       Math.random = () => ((state = (state * 1664525 + 1013904223) >>> 0) / 4294967296);
     }
-    if (pool || letters) {
+    // Legacy scenarios isolate ordinary content; lucky scenarios opt in explicitly.
+    if (pool || letters || !lucky) {
       let content;
       Object.defineProperty(window, 'EMOTION_BOX_CONTENT', {
         configurable: true, get: () => content,
-        set: value => { if (pool) value.messages = pool; if (letters) value.letters = letters; content = value; }
+        set: value => { if (pool) value.messages = pool; if (letters) value.letters = letters; if (!lucky) value.superLucky = null; content = value; }
       });
     }
-  }, { seed: options.seed || {}, blocked: !!options.blocked, quota: options.quota || '', pool: options.pool, random: !!options.random, letters: options.letters });
+  }, { seed: options.seed || {}, blocked: !!options.blocked, quota: options.quota || '', pool: options.pool, random: !!options.random, letters: options.letters, lucky: !!options.lucky });
   if (!options.realTime) await page.clock.install({ time: new Date('2026-10-19T14:00:00+09:00') });
   await page.goto(origin + (options.subdir ? '/LuckyXinxin/' : '/'));
   await page.locator('#open-daily').waitFor();
@@ -89,9 +90,402 @@ async function next(page) { await page.locator('#next-note').click(); await page
   const store = n => ({ version: 2, items: records(n) });
   const privateRecords = n => Array.from({ length: n }, (_, i) => ({ id: `self-${i}`, text: `只有点开才能看到的心事 ${i}`, at: new Date(Date.UTC(2026, 9, 18, 0, i)).toISOString() }));
   const cards = (page, group) => page.locator(`#home-shelves .bottle-card${group ? `[data-group="${group}"]` : ''}`);
-  const closeDialog = async (page, id) => { await page.locator(`#${id} .dialog-header [data-close]`).click(); await page.waitForFunction(id => !document.getElementById(id).open, id); };
+  const closeDialog = async (page, id) => {
+    // Native dialog.open changes before the asynchronous close event runs cleanup.
+    await page.locator(`#${id}`).evaluate(node => {
+      delete node.dataset.testClosed;
+      node.addEventListener('close', () => { node.dataset.testClosed = 'true'; }, { once: true });
+    });
+    await page.locator(`#${id} .dialog-header [data-close]`).click();
+    await page.waitForFunction(id => document.getElementById(id).dataset.testClosed === 'true', id);
+  };
   const countIs = async (page, n) => assert.equal(await text(page, '#drop-count'), `已经留下${n}滴小雨滴`);
   const gifts = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), giftKey);
+
+  const backupOf = (overrides = {}) => ({ format: 'lucky-xinxin-backup', version: 1, exportedAt: '2026-10-20T03:00:00.000Z', gifts: records(2), vents: privateRecords(1), legacyDays: ['2026-10-18'], ...overrides });
+  const openRestore = async page => { await page.locator('[data-open="privacy-dialog"]').click(); await page.locator('#backup-restore').click(); };
+  const inspectBackup = async (page, data) => { await page.locator('#backup-input').fill(typeof data === 'string' ? data : JSON.stringify(data, null, 2)); await page.locator('#backup-check').click(); };
+  const savedCollections = page => page.evaluate(({ giftKey, prefix }) => Object.fromEntries([giftKey, prefix + 'vents', prefix + 'drops'].map(key => [key, localStorage.getItem(key)])), { giftKey, prefix });
+  let copiedBackup;
+
+  const luckyRecord = (id = 'fixture', overrides = {}) => ({ id: `lucky:${id}`, source: 'lucky', messageId: 'super-lucky-01', text: '保存时的超级幸运原话 ✨', expression: 'laugh', at: '2026-11-04T03:12:00.000Z', special: 'super-lucky', ...overrides });
+  const luckyDaily = { id: 'daily:2026-11-04', source: 'daily', day: '2026-11-04', messageId: 'super-lucky-01', text: '当天的超级幸运快照', expression: 'pout', special: 'super-lucky' };
+  async function drawWithRoll(page, roll) {
+    if (!await page.locator('#note-dialog').evaluate(node => node.open)) await page.locator('.choice-note').click();
+    else if (await page.locator('#note-reader').isVisible()) await page.locator('#next-note').click();
+    await page.evaluate(value => { Math.random = () => value; }, roll);
+    await page.locator('.pick-drop').first().click();
+    return text(page);
+  }
+  const hasCelebration = page => page.locator('#lucky-celebration').evaluate(node => node.matches(':popover-open'));
+
+  await check('lucky: messages gain only a small emoji suffix and the lucky content stays outside the ordinary pool', async () => {
+    const baseline = { window: {} };
+    require('node:vm').runInNewContext(require('node:child_process').execFileSync('git', ['show', '17b38f4:content.js'], { encoding: 'utf8' }), baseline);
+    const t = await fresh({ lucky: true });
+    const data = await t.page.evaluate(() => window.EMOTION_BOX_CONTENT);
+    assert.equal(data.messages.length, 64); assert.equal(data.superLucky.id, 'super-lucky-01');
+    assert.equal(data.messages.some(item => item.id === data.superLucky.id), false);
+    let changed = 0;
+    for (const message of data.messages) {
+      const old = baseline.window.EMOTION_BOX_CONTENT.messages.find(item => item.id === message.id).text;
+      assert.ok(message.text.startsWith(old));
+      if (message.text !== old) { changed++; assert.equal([...new Intl.Segmenter('zh', { granularity: 'grapheme' }).segment(message.text.slice(old.length))].length, 1); }
+    }
+    assert.ok(changed >= 12 && changed <= 24); await t.close();
+  });
+
+  await check('lucky: the exact 10 percent boundary supports repeat encounters and stable retry identities', async () => {
+    const t = await fresh({ lucky: true }); const { page } = t;
+    await drawWithRoll(page, .10); assert.equal(await page.locator('#note-reader').evaluate(node => node.classList.contains('is-super-lucky')), false);
+    await drawWithRoll(page, .099999); assert.match(await text(page), /好运爆棚/); await countIs(page, 0);
+    assert.equal(await page.locator('#reader-mascot .lucky-mascot').count(), 1); assert.equal(await page.locator('#lucky-date').isVisible(), true);
+    await page.locator('#save-note').click(); const first = (await gifts(page)).items[0];
+    assert.equal(first.source, 'lucky'); assert.equal(first.special, 'super-lucky'); assert.ok(Number.isFinite(Date.parse(first.at)));
+    assert.equal(await text(page, '#note-status'), '超级幸运已放进瓶子里。✨');
+    await page.locator('#save-note').evaluate(node => node.click()); await countIs(page, 1);
+    await drawWithRoll(page, 0); await page.locator('#save-note').click();
+    const second = (await gifts(page)).items[1]; assert.notEqual(second.id, first.id); assert.equal(second.messageId, first.messageId); await countIs(page, 2);
+    await closeDialog(page, 'note-dialog'); await page.reload(); await drawWithRoll(page, 0); await page.locator('#save-note').click(); await countIs(page, 3); await t.close();
+    const failed = await fresh({ lucky: true, quota: 'gift-drops' });
+    await drawWithRoll(failed.page, 0); await failed.page.locator('#save-note').click(); assert.match(await text(failed.page, '#note-status'), /没能保存/);
+    await failed.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; });
+    await failed.page.locator('#save-note').click(); const retried = (await gifts(failed.page)).items[0];
+    await failed.page.locator('#save-note').evaluate(node => node.click()); assert.deepEqual((await gifts(failed.page)).items, [retried]); await failed.close();
+  });
+
+  await check('lucky: a special encounter leaves the ordinary shuffle queue and expressions intact', async () => {
+    const a = await fresh({ lucky: true, pool: fixturePool.slice(0, 6) }), b = await fresh({ lucky: true, pool: fixturePool.slice(0, 6) });
+    assert.equal(await drawWithRoll(a.page, .5), await drawWithRoll(b.page, .5));
+    await a.page.locator('#next-note').click(); const selected = await a.page.locator('.pick-drop').first().getAttribute('data-expression');
+    await a.page.evaluate(() => { Math.random = () => 0; }); await a.page.locator('.pick-drop').first().click();
+    assert.equal(await a.page.locator('#reader-mascot svg').getAttribute('data-expression'), selected);
+    await a.page.locator('#save-note').click(); assert.equal((await gifts(a.page)).items[0].expression, selected);
+    assert.equal(await drawWithRoll(a.page, .5), await drawWithRoll(b.page, .5)); await a.close(); await b.close();
+  });
+
+  await check('lucky: daily outcomes remain fixed, auto-save once and respect old snapshots', async () => {
+    const t = await fresh({ lucky: true }); const { page } = t;
+    await page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00'));
+    await page.locator('#open-daily').click(); await countIs(page, 1);
+    const daily = (await gifts(page)).items[0]; assert.equal(daily.special, 'super-lucky'); assert.equal(daily.source, 'daily'); assert.equal(daily.day, '2026-11-04');
+    assert.equal(await hasCelebration(page), true); await closeDialog(page, 'note-dialog');
+    await page.locator('#open-daily').click(); assert.deepEqual((await gifts(page)).items, [daily]); assert.equal(await hasCelebration(page), false);
+    await closeDialog(page, 'note-dialog'); await page.reload(); await page.locator('#open-daily').click(); assert.equal(await hasCelebration(page), false);
+    await closeDialog(page, 'note-dialog'); await page.clock.setFixedTime(new Date('2026-11-05T12:00:00+09:00')); await page.locator('#open-daily').click();
+    assert.equal((await gifts(page)).items[1].special, undefined); await t.close();
+    const old = { ...luckyDaily, text: '以前存好的普通赠言' }; delete old.special;
+    const snapshot = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items: [old] } } });
+    await snapshot.page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00')); await snapshot.page.locator('#open-daily').click();
+    assert.equal(await text(snapshot.page), old.text); assert.equal(await hasCelebration(snapshot.page), false); await snapshot.close();
+  });
+
+  await check('lucky: daily interruption and failed writes preserve the same surprise and never report a false collection', async () => {
+    const t = await fresh({ lucky: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-11-04T12:00:00+09:00')); await page.locator('#open-daily').click(); await page.clock.runFor(500);
+    await closeDialog(page, 'note-dialog'); await page.clock.runFor(1500); await countIs(page, 0); assert.equal(await hasCelebration(page), false);
+    await page.locator('#open-daily').click(); await page.clock.runFor(1300); assert.equal((await gifts(page)).items[0].special, 'super-lucky'); await t.close();
+    const failed = await fresh({ lucky: true, quota: 'gift-drops' }); await failed.page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00'));
+    await failed.page.locator('#open-daily').click(); const wording = await text(failed.page); assert.match(wording, /超级幸运/);
+    await countIs(failed.page, 0); assert.match(await text(failed.page, '#note-status'), /没能保存/);
+    await failed.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; }); await failed.page.locator('#retry-daily').click();
+    assert.equal((await gifts(failed.page)).items[0].text, wording); assert.equal(await text(failed.page, '#note-status'), '超级幸运已放进瓶子里。✨'); await failed.close();
+  });
+
+  await check('lucky: celebrations cover the viewport above the reader, pass input through, and stop on time or interruption', async () => {
+    const t = await fresh({ lucky: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00')); await page.locator('.choice-note').click();
+    const focused = await page.evaluate(() => document.activeElement.id || document.activeElement.className);
+    await page.evaluate(() => { Math.random = () => 0; }); await page.locator('.pick-drop').first().click(); await page.clock.runFor(1300);
+    const bounds = await page.locator('#lucky-celebration').evaluate(node => { const r = node.getBoundingClientRect(); return { top: r.top, left: r.left, width: r.width, height: r.height, expectedWidth: innerWidth, expectedHeight: innerHeight, pointer: getComputedStyle(node).pointerEvents }; });
+    assert.equal(await hasCelebration(page), true); assert.equal(bounds.top, 0); assert.equal(bounds.left, 0); assert.equal(bounds.width, bounds.expectedWidth); assert.equal(bounds.height, bounds.expectedHeight); assert.equal(bounds.pointer, 'none');
+    assert.equal(await page.locator('.lucky-particle').count(), 36);
+    assert.equal(await page.evaluate(() => document.activeElement.closest('#lucky-celebration') !== null), false);
+    await animationFrame(page, '#lucky-celebration', 650); await page.screenshot({ path: path.join(results, 'super-lucky-celebration-390.png') });
+    await page.locator('#save-note').click(); await countIs(page, 1); await page.clock.runFor(2399); assert.equal(await hasCelebration(page), true);
+    await page.clock.runFor(1); assert.equal(await hasCelebration(page), false);
+    await page.locator('#next-note').click(); await page.locator('.pick-drop').first().click(); await page.clock.runFor(1300); assert.equal(await hasCelebration(page), true);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await hasCelebration(page), false); assert.equal(await page.locator('.lucky-particle').count(), 0);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await hasCelebration(page), false); await closeDialog(page, 'note-dialog'); assert.equal(await page.locator('.lucky-particle').count(), 0);
+    assert.ok(focused); await t.close();
+  });
+
+  await check('lucky: special bottle glow tracks repacking, current hero bottle, removal and cross-tab updates', async () => {
+    const items = [...records(10), luckyRecord()];
+    const t = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items } } }); const { page, context } = t;
+    assert.equal(await cards(page).filter({ has: page.locator('.super-lucky-bottle') }).count(), 1);
+    assert.equal(await page.locator('#hero-bottle.has-super-lucky').count(), 1); assert.equal(await cards(page).last().getAttribute('class').then(value => value.includes('has-super-lucky')), true);
+    await cards(page).first().click(); await page.locator('.bottled-drop').first().click(); await page.locator('#remove-note').click();
+    await closeDialog(page, 'note-dialog'); await closeDialog(page, 'bottle-dialog');
+    assert.equal(await cards(page).count(), 1); assert.equal(await page.locator('#home-shelves .has-super-lucky').count(), 1);
+    await cards(page).first().click(); assert.equal(await page.locator('#bottle-detail-art.has-super-lucky').count(), 1);
+    await page.locator('.bottled-drop.is-super-lucky').click(); assert.match(await text(page, '#lucky-date'), /2026/); assert.equal(await hasCelebration(page), false);
+    await page.locator('#remove-note').click(); await closeDialog(page, 'note-dialog'); await closeDialog(page, 'bottle-dialog');
+    assert.equal(await page.locator('#home-shelves .has-super-lucky').count(), 0); assert.equal(await page.locator('#hero-bottle.has-super-lucky').count(), 0);
+    const other = await context.newPage(); await other.goto(origin + '/');
+    await other.evaluate(({ key, item }) => { const store = JSON.parse(localStorage.getItem(key)); store.items.push(item); localStorage.setItem(key, JSON.stringify(store)); }, { key: giftKey, item: luckyRecord('second') });
+    await page.waitForSelector('#home-shelves .has-super-lucky');
+    await page.locator('.hotspot-bottle').click(); assert.equal(await page.locator('#collection-list .has-super-lucky').count(), 1); await t.close();
+  });
+
+  await check('lucky: backups retain encounter IDs, dates, flags and separate lucky counts without current content', async () => {
+    const items = [...records(1), luckyRecord('a'), luckyRecord('b'), luckyDaily];
+    const t = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items } } }); const { page } = t;
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.__luckyBackup = value; } } }));
+    await page.locator('[data-open="privacy-dialog"]').click(); await page.locator('#backup-copy').click();
+    await page.waitForFunction(() => !!window.__luckyBackup); const backup = await page.evaluate(() => window.__luckyBackup); assert.deepEqual(JSON.parse(backup).gifts, items); await t.close();
+    const restored = await fresh(); await openRestore(restored.page); await inspectBackup(restored.page, backup);
+    assert.match(await text(restored.page, '#backup-summary'), /超级幸运：新增 3，重复 0/); assert.match(await text(restored.page, '#backup-summary'), /今日雨滴：新增 0，重复 0/);
+    await restored.page.locator('#backup-confirm').click(); assert.deepEqual((await gifts(restored.page)).items, items);
+    await restored.page.locator('#backup-check').click(); await restored.page.locator('#backup-confirm').click(); await countIs(restored.page, 4);
+    await closeDialog(restored.page, 'backup-dialog'); await closeDialog(restored.page, 'privacy-dialog');
+    await cards(restored.page).first().click(); await restored.page.locator('.bottled-drop.is-super-lucky').first().click(); assert.equal(await text(restored.page), items[1].text);
+    assert.equal(await restored.page.locator('#reader-mascot .lucky-mascot').count(), 1); await restored.close();
+    const invalid = await fresh(); await openRestore(invalid.page);
+    for (const item of [luckyRecord('x', { at: 'bad' }), luckyRecord('x', { special: 'unknown' }), luckyRecord('x', { source: 'message' })]) {
+      await inspectBackup(invalid.page, backupOf({ gifts: [item] })); assert.equal(await invalid.page.locator('#backup-confirm').isVisible(), false);
+    }
+    await invalid.close();
+  });
+
+  await check('lucky: header bottle shakes on each click and releases stars after three taps with timeout and keyboard support', async () => {
+    const t = await fresh({ lucky: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    const button = page.locator('#brand-bottle'), stars = () => button.evaluate(node => node.classList.contains('has-stars'));
+    const before = await savedCollections(page); await button.click(); assert.equal(await button.evaluate(node => node.classList.contains('is-shaking')), true); assert.equal(await stars(), false);
+    await page.clock.runFor(2001); await button.click(); await button.click(); assert.equal(await stars(), false); await button.click(); assert.equal(await stars(), true);
+    await animationFrame(page, '#brand-bottle', 450); await page.screenshot({ path: path.join(results, 'brand-bottle-stars-390.png') });
+    await page.clock.runFor(1400); assert.equal(await stars(), false);
+    await button.focus(); await page.keyboard.press('Enter'); await page.clock.runFor(2000); await page.keyboard.press('Space'); await page.keyboard.press('Enter'); assert.equal(await stars(), true);
+    await page.locator('.choice-quiet').click(); assert.equal(await stars(), false); await closeDialog(page, 'quiet-dialog');
+    await button.click(); await button.click(); await button.click(); assert.equal(await stars(), true);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await stars(), false); assert.deepEqual(await savedCollections(page), before);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+    await button.click(); assert.equal(await stars(), false); await t.close();
+  });
+
+  await check('lucky: reduced motion is static and all lucky states reflow at mobile and desktop sizes', async () => {
+    const t = await fresh({ lucky: true }); const { page } = t;
+    await page.locator('#brand-bottle').click(); await page.locator('#brand-bottle').click(); await page.locator('#brand-bottle').click();
+    assert.equal(await page.locator('.brand-stars').evaluate(node => getComputedStyle(node).animationName), 'none');
+    assert.equal(await page.locator('#brand-bottle').evaluate(node => node.classList.contains('is-shaking')), false);
+    await drawWithRoll(page, 0); assert.equal(await page.locator('.lucky-particle').first().evaluate(node => getComputedStyle(node).animationName), 'none');
+    await page.locator('#save-note').click();
+    for (const width of [320, 390, 430, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      assert.equal(await page.locator('#note-dialog .dialog-body').evaluate(node => node.scrollWidth > node.clientWidth), false);
+      const target = await page.locator('#brand-bottle').boundingBox(); assert.ok(target.width >= 44 && target.height >= 44);
+      await page.screenshot({ path: path.join(results, `super-lucky-reader-${width}.png`) });
+    }
+    await closeDialog(page, 'note-dialog'); await page.screenshot({ path: path.join(results, 'super-lucky-shelf-1280.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(results, 'super-lucky-shelf-390.png'), fullPage: true });
+    assert.equal(await cards(page).first().locator('.bottle-drawing').evaluate(node => getComputedStyle(node).animationName), 'none');
+    await t.close();
+  });
+
+  await check('daily homepage wording follows successful saving, rereading, removal and local midnight', async () => {
+    const t = await fresh(); const { page } = t;
+    assert.equal(await text(page, '.choice-note .choice-title'), '随手接一滴');
+    assert.equal(await text(page, '#daily-label'), '接住今天这一滴');
+    await page.locator('#open-daily').click(); const first = (await gifts(page)).items[0];
+    assert.equal(await text(page, '#daily-label'), '看看今天留下的这一滴');
+    await closeNote(page); await page.reload();
+    assert.equal(await text(page, '#daily-label'), '看看今天留下的这一滴');
+    await page.locator('#open-daily').click(); assert.equal(await text(page), first.text); await countIs(page, 1); await closeNote(page);
+    await cards(page, 'gift').first().click(); await page.locator('.bottled-drop').first().click(); await page.locator('#remove-note').click();
+    assert.equal(await text(page, '#daily-label'), '接住今天这一滴');
+    await closeNote(page); await closeDialog(page, 'bottle-dialog'); await page.locator('#open-daily').click(); await closeNote(page);
+    await page.clock.pauseAt(new Date('2026-10-19T23:59:59+09:00'));
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.clock.runFor(1001);
+    assert.equal(await text(page, '#daily-label'), '接住今天这一滴'); await countIs(page, 1);
+    await page.locator('#open-daily').click(); await countIs(page, 2);
+    assert.equal((await gifts(page)).items[1].day, '2026-10-20'); await t.close();
+  });
+
+  await check('daily label remains uncollected after interruption or quota failure, and updates after retry', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    await page.locator('#open-daily').click(); await page.clock.runFor(500); await closeNote(page); await page.clock.runFor(1400);
+    assert.equal(await text(page, '#daily-label'), '接住今天这一滴'); await countIs(page, 0); await t.close();
+    const failed = await fresh({ quota: 'gift-drops' });
+    await failed.page.locator('#open-daily').click();
+    assert.equal(await text(failed.page, '#daily-label'), '接住今天这一滴');
+    await failed.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; });
+    await failed.page.locator('#retry-daily').click();
+    assert.equal(await text(failed.page, '#daily-label'), '看看今天留下的这一滴'); await failed.close();
+  });
+
+  await check('daily homepage label follows another tab and foreground date changes', async () => {
+    const t = await fresh(); const { page, context } = t;
+    const other = await context.newPage(); await other.goto(origin + '/');
+    await page.locator('#open-daily').click();
+    await other.waitForFunction(() => document.getElementById('daily-label').textContent === '看看今天留下的这一滴');
+    await page.evaluate(key => localStorage.setItem(key, JSON.stringify({ version: 2, items: [] })), giftKey);
+    await other.waitForFunction(() => document.getElementById('daily-label').textContent === '接住今天这一滴');
+    await closeNote(page);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+    await page.clock.setFixedTime(new Date('2026-10-20T12:00:00+09:00'));
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await text(page, '#daily-label'), '接住今天这一滴'); await t.close();
+  });
+
+  await check('copy exports complete persisted snapshots and private writing without drafts or preferences', async () => {
+    const daily = { id: 'daily:2026-10-19', source: 'daily', day: '2026-10-19', messageId: 'changed', text: '保存时的原话\n🌧️ <script>不可执行</script>', expression: 'pout' };
+    const savedGifts = [...records(2), daily, { id: 'message:missing', source: 'message', messageId: 'missing', text: null, expression: 'blank' }];
+    const savedVents = [{ ...privateRecords(1)[0], text: '自己的心事 " & </textarea><img src=x onerror=alert(1)>\n💧', expression: 'wistful' }];
+    const t = await fresh({ seed: { [giftKey]: { version: 2, items: savedGifts }, [prefix + 'vents']: savedVents, [prefix + 'drops']: ['2026-10-17', '2026-10-18'], [prefix + 'weather']: 'sunny' } });
+    const { page } = t; const before = await savedCollections(page);
+    await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('还没提交的草稿，不应备份'); await closeDialog(page, 'vent-dialog');
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.__copiedBackup = value; } } }));
+    await page.locator('[data-open="privacy-dialog"]').click(); assert.match(await text(page, '.backup-tools'), /包含已保存的心事/);
+    await page.locator('#backup-copy').click(); await page.waitForFunction(() => document.getElementById('backup-status').textContent.startsWith('已复制'));
+    copiedBackup = await page.evaluate(() => window.__copiedBackup);
+    const data = JSON.parse(copiedBackup);
+    assert.match(copiedBackup, /\n  "format"/); assert.equal(data.format, 'lucky-xinxin-backup'); assert.equal(data.version, 1); assert.ok(Number.isFinite(Date.parse(data.exportedAt)));
+    assert.deepEqual(data.gifts, savedGifts); assert.deepEqual(data.vents, savedVents); assert.deepEqual(data.legacyDays, ['2026-10-17', '2026-10-18']);
+    assert.deepEqual(Object.keys(data).sort(), ['exportedAt', 'format', 'gifts', 'legacyDays', 'vents', 'version']);
+    assert.ok(!copiedBackup.includes('还没提交的草稿')); assert.equal(await page.locator('#backup-output-panel').isVisible(), false);
+    assert.deepEqual(await savedCollections(page), before); await closeDialog(page, 'backup-dialog');
+    assert.equal(await page.locator('#backup-output').inputValue(), ''); assert.equal(await page.locator('#backup-input').inputValue(), ''); await t.close();
+  });
+
+  await check('clipboard refusal offers selectable manual backup and ignores results after closing', async () => {
+    const t = await fresh({ seed: { [giftKey]: store(1) } }); const { page } = t;
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied'); } } }));
+    await page.locator('[data-open="privacy-dialog"]').click(); await page.locator('#backup-copy').click();
+    await page.locator('#backup-output-panel').waitFor({ state: 'visible' });
+    assert.equal(JSON.parse(await page.locator('#backup-output').inputValue()).gifts.length, 1);
+    await page.locator('#backup-select').click();
+    assert.equal(await page.locator('#backup-output').evaluate(node => node.selectionEnd - node.selectionStart === node.value.length), true);
+    await closeDialog(page, 'backup-dialog'); assert.equal(await page.locator('#backup-copy').evaluate(node => node === document.activeElement), true);
+    assert.equal(await page.locator('#backup-output').inputValue(), '');
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve, reject) => { window.__rejectCopy = reject; }) } }));
+    await page.locator('#backup-copy').click(); await closeDialog(page, 'backup-dialog'); await page.locator('#backup-restore').click();
+    await page.evaluate(() => window.__rejectCopy(new Error('late denial')));
+    assert.equal(await page.locator('#backup-output-panel').isVisible(), false); assert.equal(await text(page, '#backup-status'), ''); await t.close();
+  });
+
+  await check('exported text restores losslessly, shows category counts and never restores a duplicate', async () => {
+    const t = await fresh(); const { page } = t; await openRestore(page); await inspectBackup(page, copiedBackup);
+    assert.match(await text(page, '#backup-summary'), /普通赠言：新增 3，重复 0/); assert.match(await text(page, '#backup-summary'), /今日雨滴：新增 1/);
+    await countIs(page, 0); await page.locator('#backup-confirm').click(); await countIs(page, 7);
+    const data = JSON.parse(copiedBackup);
+    assert.deepEqual((await gifts(page)).items, data.gifts);
+    assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), prefix + 'vents'), data.vents);
+    assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), prefix + 'drops'), data.legacyDays);
+    assert.equal(await text(page, '#daily-label'), '看看今天留下的这一滴');
+    await page.locator('#backup-check').click(); assert.match(await text(page, '#backup-summary'), /自己的心事：新增 0，重复 1/);
+    await page.locator('#backup-confirm').click(); await countIs(page, 7); assert.match(await text(page, '#backup-status'), /没有重复添加/);
+    await closeDialog(page, 'backup-dialog'); assert.equal(await page.locator('#backup-input').inputValue(), '');
+    await closeDialog(page, 'privacy-dialog'); await page.locator('#open-daily').click(); assert.equal(await text(page), data.gifts[2].text); await t.close();
+  });
+
+  await check('merge preserves existing conflicts and order, including migrated legacy favorites', async () => {
+    const incoming = backupOf({ gifts: [...records(2)].reverse(), vents: privateRecords(2), legacyDays: ['2026-10-18', '2026-10-17'] });
+    const localGift = { ...records(1)[0], text: '本地原话', expression: 'blank' }, localVent = { ...privateRecords(1)[0], text: '本地心事', expression: 'sleepy' };
+    const t = await fresh({ seed: { [giftKey]: { version: 2, items: [localGift] }, [prefix + 'vents']: [localVent], [prefix + 'drops']: ['2026-10-18'] } });
+    await openRestore(t.page); await inspectBackup(t.page, incoming); assert.match(await text(t.page, '#backup-summary'), /普通赠言：新增 1，重复 1/);
+    await t.page.locator('#backup-confirm').click(); assert.deepEqual((await gifts(t.page)).items, [localGift, records(2)[1]]);
+    assert.deepEqual(await t.page.evaluate(key => JSON.parse(localStorage.getItem(key)), prefix + 'vents'), [localVent, privateRecords(2)[1]]); await t.close();
+    const old = await fresh({ seed: { [prefix + 'favorites']: ['rest-01', 'unknown-old'] } });
+    await openRestore(old.page); await inspectBackup(old.page, backupOf()); await old.page.locator('#backup-confirm').click();
+    assert.deepEqual((await gifts(old.page)).items.map(item => item.messageId), ['rest-01', 'unknown-old', 'gift-000', 'gift-001']);
+    assert.equal((await gifts(old.page)).items[1].text, null);
+    assert.deepEqual(await old.page.evaluate(key => JSON.parse(localStorage.getItem(key)), prefix + 'favorites'), ['rest-01', 'unknown-old']); await old.close();
+  });
+
+  await check('invalid, unsupported and duplicate backup records cannot alter local data', async () => {
+    const t = await fresh({ seed: { [giftKey]: store(1) } }); const { page } = t;
+    const before = await savedCollections(page); await openRestore(page);
+    const bad = ['{bad', {}, backupOf({ version: 99 }), backupOf({ exportedAt: 'bad-date' }), backupOf({ gifts: [{ ...records(1)[0], expression: 'bad' }] }), backupOf({ gifts: [...records(1), ...records(1)] }), backupOf({ vents: [{ id: 'a' }] }), backupOf({ vents: [...privateRecords(1), ...privateRecords(1)] }), backupOf({ legacyDays: ['2026-02-30'] })];
+    for (const value of bad) {
+      await inspectBackup(page, value); assert.equal(await page.locator('#backup-confirm').isVisible(), false);
+      assert.ok((await text(page, '#backup-status')).length); assert.deepEqual(await savedCollections(page), before);
+    }
+    await inspectBackup(page, backupOf()); await page.locator('#backup-input').fill('改动后的内容');
+    assert.equal(await page.locator('#backup-confirm').isVisible(), false); assert.equal(await text(page, '#backup-summary'), ''); await t.close();
+  });
+
+  await check('unreadable local records block both complete export and restoration', async () => {
+    for (const key of [giftKey, prefix + 'vents', prefix + 'drops', prefix + 'favorites']) {
+      const t = await fresh({ seed: { [key]: '{bad' } }); const { page } = t;
+      await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { window.__copied = true; } } }));
+      const before = await savedCollections(page);
+      await page.locator('[data-open="privacy-dialog"]').click(); await page.locator('#backup-copy').click();
+      assert.match(await text(page, '#backup-status'), /无法完整读取/); assert.equal(await page.evaluate(() => !!window.__copied), false);
+      await closeDialog(page, 'backup-dialog'); await page.locator('#backup-restore').click(); await inspectBackup(page, backupOf());
+      assert.equal(await page.locator('#backup-confirm').isVisible(), false); assert.deepEqual(await savedCollections(page), before); await t.close();
+    }
+  });
+
+  await check('a failed multi-key restore rolls back absent and existing keys and allows retry', async () => {
+    for (const seed of [{}, { [giftKey]: store(1), [prefix + 'vents']: privateRecords(1) }]) {
+      const t = await fresh({ seed }); const { page } = t; const before = await savedCollections(page);
+      await openRestore(page); const incoming = backupOf({ gifts: records(3), vents: privateRecords(2) }); await inspectBackup(page, incoming);
+      await page.evaluate(key => { const original = Storage.prototype.setItem; window.__restoreSet = original; Storage.prototype.setItem = function(k, value) { if (k === key) throw new Error('quota'); return original.call(this, k, value); }; }, prefix + 'vents');
+      await page.locator('#backup-confirm').click(); assert.match(await text(page, '#backup-status'), /没能恢复，已回滚/);
+      assert.deepEqual(await savedCollections(page), before); assert.deepEqual(JSON.parse(await page.locator('#backup-input').inputValue()), incoming);
+      await page.evaluate(() => { Storage.prototype.setItem = window.__restoreSet; });
+      await page.locator('#backup-check').click(); await page.locator('#backup-confirm').click(); assert.match(await text(page, '#backup-status'), /合并好了/); await countIs(page, 6); await t.close();
+    }
+  });
+
+  await check('rollback failure is reported honestly with pasted backup retained', async () => {
+    const t = await fresh({ seed: { [giftKey]: store(1) } }); const { page } = t; await openRestore(page); await inspectBackup(page, backupOf());
+    await page.evaluate(({ giftKey, ventKey }) => {
+      const original = Storage.prototype.setItem; let giftsWritten = false;
+      Storage.prototype.setItem = function(key, value) {
+        if (key === ventKey || key === giftKey && giftsWritten) throw new Error('storage failed');
+        original.call(this, key, value); if (key === giftKey) giftsWritten = true;
+      };
+    }, { giftKey, ventKey: prefix + 'vents' });
+    await page.locator('#backup-confirm').click(); assert.match(await text(page, '#backup-status'), /恢复未完成，部分记录未能回滚/);
+    assert.ok((await page.locator('#backup-input').inputValue()).length); assert.equal((await gifts(page)).items.length, 2); await t.close();
+  });
+
+  await check('restore rechecks a preview after another tab changes the collection', async () => {
+    const t = await fresh(); const { page, context } = t; await openRestore(page); await inspectBackup(page, backupOf());
+    const other = await context.newPage(); await other.goto(origin + '/'); await other.locator('#open-daily').click();
+    await page.waitForFunction(() => document.getElementById('drop-count').textContent.includes('1滴'));
+    await page.locator('#backup-confirm').click(); assert.match(await text(page, '#backup-status'), /本地记录刚刚有变化/); await countIs(page, 1);
+    await page.locator('#backup-confirm').click(); await countIs(page, 5);
+    await other.waitForFunction(() => document.getElementById('drop-count').textContent.includes('5滴')); await t.close();
+  });
+
+  await check('long daily labels, compact spacing and backup dialogs reflow at all requested widths', async () => {
+    const daily = { id: 'daily:2026-10-19', source: 'daily', day: '2026-10-19', messageId: 'saved', text: '今天也可以慢慢来', expression: 'smile' };
+    const t = await fresh({ seed: { [giftKey]: { version: 2, items: [daily] } } }); const { page } = t;
+    for (const width of [320, 390, 430, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      const bounds = await page.evaluate(() => {
+        const label = document.getElementById('daily-label').getBoundingClientRect(), button = document.getElementById('open-daily').getBoundingClientRect();
+        const shelf = getComputedStyle(document.querySelector('.collection-section'));
+        return { overflow: document.documentElement.scrollWidth > innerWidth, fits: label.left >= button.left && label.right <= button.right && label.bottom <= button.bottom, margin: parseFloat(shelf.marginTop), padding: parseFloat(shelf.paddingTop) };
+      });
+      assert.equal(bounds.overflow, false); assert.equal(bounds.fits, true); assert.equal(bounds.margin + bounds.padding, 16);
+      if ([390, 1280].includes(width)) await page.screenshot({ path: path.join(results, `backup-refined-home-${width}.png`), fullPage: true });
+      await openRestore(page); await inspectBackup(page, backupOf());
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await page.screenshot({ path: path.join(results, `backup-restore-${width}.png`) });
+      await closeDialog(page, 'backup-dialog'); await closeDialog(page, 'privacy-dialog');
+    }
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.addStyleTag({ content: 'button,p,span,label,li{font-size:28px!important} h1{font-size:52px!important}' });
+    await page.locator('[data-art="letter"]').click();
+    assert.equal(await page.evaluate(() => { const text = document.getElementById('art-message').getBoundingClientRect(), shelf = document.querySelector('.collection-section').getBoundingClientRect(); return text.bottom <= shelf.top; }), true);
+    await openRestore(page); await inspectBackup(page, backupOf());
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.equal(await page.locator('#backup-dialog .dialog-body').evaluate(node => node.scrollWidth <= node.clientWidth), true);
+    await page.locator('#backup-dialog .dialog-body').evaluate(node => { node.scrollTop = node.scrollHeight; });
+    const close = await page.locator('#backup-dialog .close').boundingBox(); assert.ok(close.y >= 0 && close.y + close.height <= 640);
+    await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.getElementById('backup-dialog').open && !document.getElementById('backup-input').value);
+    assert.equal(await page.locator('#backup-input').inputValue(), ''); await t.close();
+  });
 
   await check('all 64 original message IDs and the old gift-box discoveries remain available', async () => {
     const original = { window: {} };
@@ -101,10 +495,10 @@ async function next(page) { await page.locator('#next-note').click(); await page
     assert.equal(ids.length, 64); assert.deepEqual(ids, Array.from(original.window.EMOTION_BOX_CONTENT.messages, message => message.id));
     for (const kind of ['box', 'letter', 'flower', 'heart']) {
       assert.equal(await page.locator(`[data-art="${kind}"]`).count(), 1);
-      assert.equal(await page.evaluate(kind => window.EMOTION_BOX_CONTENT.interactions[kind], kind), original.window.EMOTION_BOX_CONTENT.interactions[kind]);
+      assert.ok((await page.evaluate(kind => window.EMOTION_BOX_CONTENT.interactions[kind], kind)).startsWith(original.window.EMOTION_BOX_CONTENT.interactions[kind]));
     }
     assert.equal(await page.locator('#desk-box .box-art .art-letter,#desk-box .box-art .art-flower,#desk-box .box-art .art-heart').count(), 3);
-    assert.equal(await page.locator('#package-label').textContent(), '美好已打包'); assert.equal(await page.locator('#art-stage .art-hotspot').count(), 8); await t.close();
+    assert.equal(await page.locator('#package-label').textContent(), 'To馨馨'); assert.equal(await page.locator('#art-stage .art-hotspot').count(), 8); await t.close();
   });
 
   await check('first and returning layouts keep the daily entry visible and all eight scene hotspots separate', async () => {
@@ -126,7 +520,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
             mobileOrder: get('#open-daily').bottom < get('.choices').top && get('.choices').bottom <= get('.desk-props').top,
             feedbackHeight: get('#art-message').height, boxWidth: get('#desk-box').width };
         });
-        assert.equal(bounds.overflow, false); assert.equal(bounds.minTarget, true); assert.deepEqual(bounds.overlaps, []); assert.equal(bounds.copyVisible, true); assert.ok(bounds.dailyTop > 0 && bounds.dailyBottom < (width === 320 ? 640 : 700)); assert.ok(bounds.feedbackHeight >= 45); assert.ok(bounds.boxWidth >= 240);
+        assert.equal(bounds.overflow, false); assert.equal(bounds.minTarget, true); assert.deepEqual(bounds.overlaps, []); assert.equal(bounds.copyVisible, true); assert.ok(bounds.dailyTop > 0 && bounds.dailyBottom < (width === 320 ? 640 : 700)); assert.ok(bounds.feedbackHeight >= 28, `Response area too short at ${width}px: ${bounds.feedbackHeight}`); assert.ok(bounds.boxWidth >= 240);
         if (width <= 760) assert.equal(bounds.mobileOrder, true);
         if ([390, 768, 1280].includes(width)) await page.screenshot({ path: path.join(results, `desk-${returning ? 'returning' : 'first'}-${width}.png`), fullPage: true });
       }
@@ -161,7 +555,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     const t = await fresh({ context: { ...device, reducedMotion: 'no-preference' } }); const { page } = t;
     await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
     assert.equal(await page.locator('#sheep-bubble').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false);
-    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#sheep-bubble').innerText(), '咩～'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), 'sheep'); assert.equal(await text(page, '#art-message'), '');
+    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#sheep-bubble').innerText(), 'Lucky～⭐'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), 'sheep'); assert.equal(await text(page, '#art-message'), '');
     await page.clock.runFor(1000); await page.locator('[data-art="sheep"]').tap(); await page.clock.runFor(3100); assert.equal(await page.locator('#sheep-bubble').isVisible(), true);
     await page.clock.runFor(899); assert.equal(await page.locator('#sheep-bubble').isVisible(), true); await page.clock.runFor(1); assert.equal(await page.locator('#sheep-bubble').isVisible(), false);
     await page.locator('[data-art="sheep"]').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('#sheep-bubble').isVisible(), true);
@@ -233,7 +627,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await page.evaluate(() => { window.__deskNodes = { box: document.getElementById('desk-box'), star: document.querySelector('.hero-star'), mascot: document.querySelector('.hero-mascot'), bottle: document.getElementById('hero-bottle') }; });
     await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#open-daily').click(); await countIs(page, 1); await closeNote(page);
     assert.equal(await page.evaluate(() => Object.entries(window.__deskNodes).every(([key, node]) => node === (key === 'box' ? document.getElementById('desk-box') : key === 'bottle' ? document.getElementById('hero-bottle') : document.querySelector(key === 'star' ? '.hero-star' : '.hero-mascot')))), true);
-    await page.locator('[data-art="box"]').click(); assert.equal(await text(page, '#art-message'), '美好已打包，随时可以取。'); await countIs(page, 1); await t.close();
+    await page.locator('[data-art="box"]').click(); assert.equal(await text(page, '#art-message'), await page.evaluate(() => window.EMOTION_BOX_CONTENT.interactions.box)); await countIs(page, 1); await t.close();
   });
 
   await check('drop wording and unpunctuated modal titles preserve saved snapshots and private text', async () => {

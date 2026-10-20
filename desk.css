@@ -68,4 +68,48 @@
 @keyframes closing-star-rays{0%,100%{opacity:0}30%,70%{opacity:.95}50%{opacity:.3}}
 
 /* Keep a single response line between the gift scene and the bottle shelf. */
-.collection-section{margin-top:18px;padding-top:22px}
+.collection-section{margin-top:2px;padding-top:14px}
+
+/* Long daily labels and backup text stay inside the small-screen dialog. */
+.daily-button #daily-label{min-width:0;overflow-wrap:anywhere;text-align:left}
+.backup-tools{padding-bottom:22px;margin-bottom:22px;border-bottom:1px solid var(--line)}
+.backup-tools h3{font-family:var(--serif);font-size:20px;font-weight:500;margin:0 0 10px;line-height:1.6}
+.backup-tools .actions>button{max-width:100%}
+#backup-dialog label{display:block;font-size:14px;margin:12px 0 8px}
+#backup-dialog textarea{min-height:180px;margin-bottom:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+#backup-output{font-family:var(--sans);font-size:14px}
+#backup-summary ul{padding-left:22px;font-size:14px;line-height:2}
+#backup-confirm{max-width:100%}
+
+/* A tiny three-tap discovery in the wordmark. The artwork keeps its original size. */
+.brand-bottle-button{position:relative;display:grid;place-items:center;flex:0 0 44px;width:44px;height:44px;padding:0;background:transparent;border-radius:12px;overflow:visible}
+.brand-bottle-button .brand-bottle{transform-origin:50% 85%}
+.brand-bottle-button.is-shaking .brand-bottle{animation:brand-bottle-shake .45s ease-in-out}
+.brand-stars{position:absolute;inset:-14px -11px 0;pointer-events:none;opacity:0;color:#c6a04d}
+.brand-stars svg{width:100%;height:100%;fill:#e4c576;stroke:#aa894b;stroke-width:1}
+.has-stars .brand-stars{opacity:1;animation:brand-stars-rise 1.4s ease-out both}
+@keyframes brand-bottle-shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}55%{transform:rotate(10deg)}80%{transform:rotate(-5deg)}}
+@keyframes brand-stars-rise{0%{opacity:0;transform:translateY(7px) scale(.65)}20%{opacity:1}75%{opacity:.8}100%{opacity:0;transform:translateY(-18px) scale(1.1)}}
+
+/* Every bottle derives its glow from the records currently inside it. */
+.has-super-lucky .bottle-drawing,.has-super-lucky#bottle-detail-art,#hero-bottle.has-super-lucky{filter:drop-shadow(0 0 6px #d9ba6880);animation:lucky-bottle-breathe 3.6s ease-in-out infinite}
+.bottle-card.has-super-lucky{border-color:#c9ad65;background:#f4edda;box-shadow:0 0 12px #d4b35b24}
+.is-super-lucky.bottled-drop{background:#f4ecd4;border-color:#cbb574}
+.is-super-lucky .drop-message{background:linear-gradient(135deg,#f8efd5,#f1e6bf);border-color:#cbb574;box-shadow:0 0 16px #d0b35f28}
+.is-super-lucky #note-text{color:#625330}
+.is-super-lucky #reader-mascot{width:86px}
+@keyframes lucky-bottle-breathe{0%,100%{filter:drop-shadow(0 0 5px #d9ba6860)}50%{filter:drop-shadow(0 0 10px #d9ba6890)}}
+
+/* A manual, non-modal popover reaches the top layer without capturing input. */
+#lucky-celebration{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:transparent;overflow:hidden;pointer-events:none;user-select:none;z-index:1100}
+#lucky-celebration::backdrop{pointer-events:none;background:transparent}
+#lucky-celebration.is-celebrating{background:radial-gradient(ellipse at 50% 44%,#f3d77a30,transparent 72%)}
+.lucky-particle{position:absolute;width:var(--size);height:var(--size);opacity:0;filter:drop-shadow(0 0 5px #ffde8990);animation:lucky-window-stars 2.05s ease-out var(--delay) both}
+.lucky-particle svg{display:block;width:100%;height:100%;fill:#e6c76f;stroke:#b79546;stroke-width:.6}
+.has-lucky-celebration::backdrop{background-image:radial-gradient(ellipse at center,#ecd08030,transparent 75%)}
+@keyframes lucky-window-stars{0%{opacity:0;transform:translateY(22px) scale(.15) rotate(0)}24%{opacity:.95;transform:translateY(0) scale(1) rotate(var(--turn))}65%{opacity:.8}100%{opacity:0;transform:translateY(-36px) scale(.55) rotate(var(--turn))}}
+.page-hidden .has-super-lucky *,.page-hidden #bottle-detail-art.has-super-lucky,.page-hidden #hero-bottle.has-super-lucky{animation-play-state:paused!important}
+@media(prefers-reduced-motion:reduce){
+ .brand-bottle-button.is-shaking .brand-bottle,.has-stars .brand-stars,.has-super-lucky .bottle-drawing,.has-super-lucky#bottle-detail-art,#hero-bottle.has-super-lucky,.lucky-particle{animation:none!important}
+ .has-stars .brand-stars{opacity:1;transform:none}.lucky-particle{opacity:.75;transform:none}
+}

@@ -1,4 +1,10 @@
 /* Motion is deliberate and ends; system reduced motion is honored in JS and CSS. */
+.hero-bottle-stars{opacity:0;pointer-events:none}
+.is-sparkling .hero-bottle-stars{opacity:1}
+.hero-orbit-star{opacity:0;transform-box:fill-box;transform-origin:center}
+.is-sparkling .hero-orbit-star{animation:hero-bottle-twinkle 1.65s ease-in-out var(--twinkle-delay) both}
+@keyframes hero-bottle-twinkle{0%,100%{opacity:0;transform:scale(.35)}20%,65%{opacity:.95;transform:scale(1.15)}43%{opacity:.3;transform:scale(.7)}82%{opacity:.75;transform:scale(.95)}}
+@media(prefers-reduced-motion:reduce){.is-sparkling .hero-orbit-star{animation:none;opacity:.8;transform:none}.is-sparkling .hero-star,.is-sparkling .bottle-sparkle{animation:none!important}}
 .is-sparkling .hero-star{animation:star-wink .9s ease-in-out 2;transform-box:fill-box;transform-origin:center}.is-sparkling .bottle-sparkle{animation:star-wink .7s ease-in-out 2}@keyframes star-wink{50%{opacity:.4;filter:brightness(1.2)}}
 .picker-scene{min-height:220px;display:flex;align-items:center;justify-content:center;gap:18px;margin:16px 0 0}.pick-drop{background:transparent;border:0;padding:8px 0;width:110px;max-width:30%;min-height:145px;transform:rotate(var(--tilt));transition:translate .2s}.pick-drop:nth-child(1){--tilt:-6deg;margin-top:16px}.pick-drop:nth-child(2){--tilt:1deg;margin-top:-10px}.pick-drop:nth-child(3){--tilt:7deg;margin-top:18px}.pick-drop>.mascot-svg{width:100%;height:auto}.pick-drop:hover:not(:disabled){translate:0 -7px;filter:none}.pick-drop:disabled{opacity:1}.picker-caption{text-align:center}.catch-caption{text-align:center;line-height:1.8;margin-top:0}#catch-scene{width:min(100%,360px);margin:0 auto;line-height:0}#catch-scene>svg{width:100%;height:auto}/* One SVG coordinate system keeps the landing point aligned at every size. */
 .catch-leaf{transform-origin:var(--landing-x) var(--landing-y);transform:translateY(0)}.catch-drop-motion{transform-origin:var(--landing-x) var(--landing-y);transform:translateY(0)}.catch-ripples{opacity:0}.catch-caption{visibility:hidden}.is-catching .catch-leaf{animation:leaf-receive 1.3s ease-out both}.is-catching .catch-drop-motion{animation:raindrop-caught 1.3s ease-in-out both}.is-catching .catch-ripples{animation:catch-ring 1.3s ease-out both}.is-catching .catch-caption{animation:catch-caption 1.3s steps(1,end) both}
@@ -25,9 +31,25 @@
 [data-effect="box"] .art-letter,[data-effect="box"] .art-flower{animation:contents-pack 2s ease-in-out}
 [data-effect="box"] .packed-lid{animation:package-appear 2s ease-in-out}
 @keyframes flower-sway{0%,100%{transform:rotate(0)}25%{transform:rotate(-7deg)}55%{transform:rotate(5deg)}80%{transform:rotate(-2deg)}}
-@keyframes heart-jump{0%,100%{transform:scale(1)}35%{transform:translateY(-9px) scale(1.17)}65%{transform:translateY(1px) scale(.97)}}
+@keyframes heart-jump{0%,100%{transform:scale(1)}35%{transform:translateY(-3px) scale(1.14)}65%{transform:scale(.98)}}
 @keyframes letter-fold{0%,100%{opacity:1;transform:scale(1)}15%{opacity:1;transform:translateY(-7px) scale(.88,.7)}25%,80%{opacity:0;transform:translateY(-10px) scale(.25,.1)}95%{opacity:1;transform:scale(1)}}
 @keyframes plane-away{0%,18%{opacity:0;transform:translate(0,0) rotate(0)}25%{opacity:1;transform:translate(0,0) rotate(-7deg)}70%{opacity:1;transform:translate(155px,-100px) rotate(-10deg)}90%,100%{opacity:0;transform:translate(235px,-150px) rotate(-12deg)}}
 @keyframes lids-close{0%,100%{opacity:1;transform:scaleY(1)}25%,72%{opacity:0;transform:scaleY(.15)}90%{opacity:1;transform:scaleY(1)}}
 @keyframes contents-pack{0%,100%{opacity:1;transform:translateY(0)}24%,73%{opacity:0;transform:translateY(38px)}92%{opacity:1;transform:translateY(0)}}
 @keyframes package-appear{0%,15%,100%{opacity:0;transform:translateY(-14px)}30%,70%{opacity:1;transform:translateY(0)}88%{opacity:0;transform:translateY(-14px)}}
+
+/* Shared motion keeps modal entry, return and internal scene changes quiet. */
+dialog[open]:not(#poem-dialog){animation:dialog-arrive .22s cubic-bezier(.2,.7,.3,1) backwards}
+dialog[open]::backdrop{animation:dialog-shade-in .22s ease-out backwards}
+dialog.is-closing::backdrop{animation:dialog-shade-out .14s ease-in both}
+dialog.is-closing .dialog-content{pointer-events:none}
+dialog.is-closing .dialog-content *{animation-play-state:paused!important}
+#note-picker:not([hidden]),#note-reader:not([hidden]),#vent-form:not([hidden]),#vent-result:not([hidden]),#backup-output-panel:not([hidden]),#backup-restore-panel:not([hidden]){animation:panel-arrive .2s ease-out backwards}
+@keyframes dialog-arrive{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes dialog-shade-in{from{opacity:0}to{opacity:1}}
+@keyframes dialog-shade-out{from{opacity:var(--shade-start,1)}to{opacity:0}}
+@keyframes panel-arrive{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){dialog[open],dialog[open]::backdrop,dialog.is-closing::backdrop,#note-picker,#note-reader,#vent-form,#vent-result,#backup-output-panel,#backup-restore-panel{animation:none!important}}
+
+dialog.is-nested::backdrop{backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+body:has(dialog[open]) .site-shell *{animation-play-state:paused!important}

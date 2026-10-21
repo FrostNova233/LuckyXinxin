@@ -10,6 +10,11 @@ window.EMOTION_BOX_CONTENT = {
     nickname: '馨馨'
   },
 
+  poem: {
+    title: '《春声》',
+    lines: ['春风一夜花初放', '季雨几日木又生', '前路纵遥终有至', '且将欢意赴新程']
+  },
+
   quiet: {
     entry: '窗边有个位置，想坐多久都可以。',
     copy: ['窗外什么天气，都可以在这里坐一会儿。', '不用跟上任何人。'],
@@ -19,22 +24,22 @@ window.EMOTION_BOX_CONTENT = {
     note: '这里没有声音，也没有需要完成的事。',
     temporary: '当前浏览器暂时无法保存偏好，本次选择仍然有效。',
     weather: {
-      rain: { name: '雨天', description: '扎丸子头的小女孩靠着抱枕坐在窗边读书，旁边有绿植和茶杯。拱形窗外是灰绿的天空和小雨。' },
-      cloudy: { name: '阴天', description: '小女孩靠着抱枕安静读书，旁边有绿植和茶杯。雨停了，拱形窗外是柔和天光和云层。' },
-      sunny: { name: '晴天', description: '小女孩靠着抱枕安静读书，旁边有绿植和茶杯。拱形窗外的太阳从云边露出来，窗台上落着一点暖光。' }
+      rain: { name: '雨天', description: '扎丸子头的小女孩靠着绿色抱枕坐在窗边读书，旁边有绿植和茶杯，左下方的小猫趴在蓝色地毯上熟睡。拱形窗外是灰绿的天空和小雨。' },
+      cloudy: { name: '阴天', description: '小女孩靠着绿色抱枕安静读书，旁边有绿植和茶杯，左下方的小猫趴在蓝色地毯上熟睡。雨停了，拱形窗外是柔和天光和云层。' },
+      sunny: { name: '晴天', description: '小女孩靠着绿色抱枕安静读书，旁边有绿植和茶杯，左下方的小猫趴在蓝色地毯上熟睡。拱形窗外的太阳从云边露出来，窗台上落着一点暖光。' }
     }
   },
 
   interactions: {
     footer: '给馨馨带来的一点小幸运～长期有效。',
     secretSign: '给馨馨的一点小幸运',
-    star: '这一点小幸运，也给馨馨留着。',
     flower: '给今天添一点花。🌼',
     letter: '一点小幸运，正在寄往你那里。',
     box: '美好已打包，随时可以取。🎁',
-    heart: '这颗也留给你。',
+    heart: '这颗也留给你~qwq',
     packageLabel: 'To馨馨',
-    sheep: 'Lucky～⭐',
+    sheep: 'Lucky馨馨超Lucky~',
+    potato: '今天也做一颗悠闲土豆。🥔',
     footerStar: '给今天留一点小星光。',
     pickerTitle: '随手接住一滴',
     pickerHint: '小雨滴带来了一句话，想听哪一滴？',

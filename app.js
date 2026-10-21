@@ -101,6 +101,12 @@
   let luckySequence = 0;
   let svgSequence = 0, heroBottleSignature = '';
   const returnFocus = new WeakMap(), dialogStack = [];
+  // Safari may show :focus-visible after modal autofocus, even for a touch opener.
+  // Keep the close button's focus cue tied to actual keyboard interaction.
+  document.addEventListener('keydown', event => {
+    if (['Tab', 'Enter', ' '].includes(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) document.body.classList.add('keyboard-navigation');
+  }, true);
+  document.addEventListener('pointerdown', () => document.body.classList.remove('keyboard-navigation'), true);
   const groupName = group => group === 'gift' ? '送给你的' : '留给自己的';
   const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; };
   const starPath = 'm0-9 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1Z';
@@ -120,13 +126,13 @@
     const n = giftItems.length ? (giftItems.length % capacity || capacity) : 0;
     const index = Math.max(0, Math.ceil(giftItems.length / capacity) - 1);
     if (!$('hero-scene').firstElementChild) {
-      $('hero-scene').innerHTML = `<svg viewBox="105 0 380 390" aria-hidden="true"><ellipse cx="266" cy="357" rx="196" ry="15" fill="#e9e3d6"/><path d="M116 357q18-3 33 1m273 0 33-4" stroke="#bcb3a1" stroke-width="1.5" fill="none"/><g transform="translate(118 4) rotate(-4 125 180)"><svg id="hero-bottle" width="260" height="357" viewBox="0 0 120 165"></svg></g><g class="hero-mascot" transform="translate(371 250)"><svg width="100" height="114" viewBox="0 0 110 125">${mascotSvg().replace(/^<svg[^>]*>|<\/svg>$/g, '')}</svg></g><path class="hero-star" d="${starPath}" transform="translate(405 94) scale(2.1) rotate(12)" fill="#e7cf91" stroke="#9c8b5d" stroke-width="1"/><path d="m437 165v11m-5-5h10M118 239l-6 8m-3-19 8 1" stroke="#b1a578" stroke-width="1.7" stroke-linecap="round"/><path d="M395 123q12 9 17 28" stroke="#b9b59d" stroke-width="1.4" stroke-dasharray="3 7" fill="none"/></svg>`;
+      $('hero-scene').innerHTML = `<svg viewBox="105 0 380 390" aria-hidden="true"><path class="hero-meadow-back" d="M111 351q4-22 43-28 27-12 59-8 43-12 90-2 35-7 68 7 36-2 61 9 35-2 47 20 6 17-31 25-49 13-108 8-69 8-132-1-64 3-97-15-6-7 0-15Z" fill="#e0e8cf"/><g transform="translate(118 28) rotate(-4 125 180)"><svg id="hero-bottle" width="260" height="357" viewBox="0 0 120 165"></svg></g><g class="hero-bottle-stars" fill="#e7cf91" stroke="#aa935e" stroke-width="1.1"><g transform="translate(175 95) scale(1.28)"><path class="hero-orbit-star" style="--twinkle-delay:0s" d="${starPath}"/></g><g transform="translate(325 63) scale(0.96)"><path class="hero-orbit-star" style="--twinkle-delay:0.12s" d="${starPath}"/></g><g transform="translate(363 145) scale(1.12)"><path class="hero-orbit-star" style="--twinkle-delay:0.24s" d="${starPath}"/></g><g transform="translate(141 181) scale(1.04)"><path class="hero-orbit-star" style="--twinkle-delay:0.36s" d="${starPath}"/></g><g transform="translate(380 224) scale(1.28)"><path class="hero-orbit-star" style="--twinkle-delay:0s" d="${starPath}"/></g><g transform="translate(157 285) scale(0.88)"><path class="hero-orbit-star" style="--twinkle-delay:0.12s" d="${starPath}"/></g><g transform="translate(342 305) scale(1.12)"><path class="hero-orbit-star" style="--twinkle-delay:0.24s" d="${starPath}"/></g><g transform="translate(220 46) scale(0.80)"><path class="hero-orbit-star" style="--twinkle-delay:0.36s" d="${starPath}"/></g><g transform="translate(123 231) scale(0.72)"><path class="hero-orbit-star" style="--twinkle-delay:0s" d="${starPath}"/></g><g transform="translate(368 91) scale(0.72)"><path class="hero-orbit-star" style="--twinkle-delay:0.12s" d="${starPath}"/></g></g><g class="hero-ground-flowers"><defs><g id="hero-small-daisy" fill="#fff6df" stroke="#bcb197" stroke-width=".8"><ellipse cy="-5" rx="2.7" ry="4.6" transform="rotate(0)"/><ellipse cy="-5" rx="2.7" ry="4.6" transform="rotate(60)"/><ellipse cy="-5" rx="2.7" ry="4.6" transform="rotate(120)"/><ellipse cy="-5" rx="2.7" ry="4.6" transform="rotate(180)"/><ellipse cy="-5" rx="2.7" ry="4.6" transform="rotate(240)"/><ellipse cy="-5" rx="2.7" ry="4.6" transform="rotate(300)"/><circle r="3" fill="#e2c581" stroke="#b9a16b"/></g><g id="hero-small-cosmos" fill="currentColor" stroke="#b59991" stroke-width=".65"><ellipse cy="-4.5" rx="3.8" ry="5.5" transform="rotate(0)"/><ellipse cy="-4.5" rx="3.8" ry="5.5" transform="rotate(72)"/><ellipse cy="-4.5" rx="3.8" ry="5.5" transform="rotate(144)"/><ellipse cy="-4.5" rx="3.8" ry="5.5" transform="rotate(216)"/><ellipse cy="-4.5" rx="3.8" ry="5.5" transform="rotate(288)"/><circle r="2.7" fill="#e5c37f" stroke="#b9a16b"/></g><g id="hero-small-bells" stroke="#879a83" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M0 8V-7m0 9-5-4m5-1 5-4" fill="none"/><path d="M-8-6q-2-7 3-8 5 2 2 8Zm9-5q-2-6 3-7 5 1 3 7Z" fill="currentColor" stroke="#a59cba" stroke-width=".7"/><path d="M0 7q-8-2-8-6 6 0 8 6" fill="#b2c09d"/></g></defs><path d="M119 353q44-16 87-10 39-9 76-1 32-7 65 3 29-4 58 4 29-3 65 4-9 19-65 22-58 7-113 1-56 7-112-3-43 0-61-20Z" fill="#c3d2ad"/><path d="M184 349q4-10 3-19 10 7 11 17l6-13 3 14q22 5 45 1l4-17 5 15 10-17-3 20q22 0 41-7l2-13 5 11 9-9-4 19q-57 13-107 7Z" fill="#b7c99f"/><g fill="none" stroke="#93a780" stroke-width="1.5" stroke-linecap="round"><path d="M122 352q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M140 359q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M158 366q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M176 352q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M194 359q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M212 366q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M230 352q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M248 359q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M266 366q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M284 352q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M302 359q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M320 366q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M338 352q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M356 359q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M374 366q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M392 352q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M410 359q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M428 366q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M446 352q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M464 359q-2-10-6-15m6 15q1-13 5-19m-5 19 9-9"/><path d="M135 341v-7"/><path d="M156 356v-7"/><path d="M179 336v-7"/><path d="M199 355v-7"/><path d="M222 334v-7"/><path d="M245 353v-7"/><path d="M269 338v-7"/><path d="M292 353v-7"/><path d="M315 336v-7"/><path d="M338 354v-7"/><path d="M361 339v-7"/><path d="M380 357v-7"/><path d="M461 352v-7"/><path d="M145 374v-7"/><path d="M177 381v-7"/><path d="M211 374v-7"/><path d="M245 384v-7"/><path d="M280 374v-7"/><path d="M315 382v-7"/><path d="M349 374v-7"/><path d="M384 381v-7"/><path d="M419 383v-7"/><path d="M454 375v-7"/></g><use href="#hero-small-daisy" color="#f1dba7" transform="translate(135 334) rotate(-25) scale(1.1)"/><use href="#hero-small-cosmos" color="#e7bdb1" transform="translate(156 349) rotate(-6) scale(0.85)"/><use href="#hero-small-daisy" color="#f1dba7" transform="translate(179 329) rotate(13) scale(1.2)"/><use href="#hero-small-bells" color="#cbc6dc" transform="translate(199 348) rotate(-18) scale(0.95)"/><use href="#hero-small-cosmos" color="#f1dba7" transform="translate(222 327) rotate(1) scale(1.15)"/><use href="#hero-small-daisy" color="#e7bdb1" transform="translate(245 346) rotate(20) scale(1.25)"/><use href="#hero-small-daisy" color="#f1dba7" transform="translate(269 331) rotate(-11) scale(0.9)"/><use href="#hero-small-cosmos" color="#e7bdb1" transform="translate(292 346) rotate(8) scale(1.15)"/><use href="#hero-small-daisy" color="#f1dba7" transform="translate(315 329) rotate(-23) scale(1.25)"/><use href="#hero-small-daisy" color="#e7bdb1" transform="translate(338 347) rotate(-4) scale(0.95)"/><use href="#hero-small-bells" color="#cbc6dc" transform="translate(361 332) rotate(15) scale(1.05)"/><use href="#hero-small-daisy" color="#e7bdb1" transform="translate(380 350) rotate(-16) scale(1)"/><use href="#hero-small-daisy" color="#f1dba7" transform="translate(461 345) rotate(3) scale(1.15)"/><use href="#hero-small-cosmos" color="#e7bdb1" transform="translate(145 367) rotate(22) scale(0.9)"/><use href="#hero-small-daisy" color="#f1dba7" transform="translate(177 374) rotate(-9) scale(1.1)"/><use href="#hero-small-daisy" color="#e7bdb1" transform="translate(211 367) rotate(10) scale(1.05)"/><use href="#hero-small-cosmos" color="#f1dba7" transform="translate(245 377) rotate(-21) scale(0.85)"/><use href="#hero-small-bells" color="#cbc6dc" transform="translate(280 367) rotate(-2) scale(1.15)"/><use href="#hero-small-daisy" color="#f1dba7" transform="translate(315 375) rotate(17) scale(0.9)"/><use href="#hero-small-cosmos" color="#e7bdb1" transform="translate(349 367) rotate(-14) scale(1.1)"/><use href="#hero-small-daisy" color="#f1dba7" transform="translate(384 374) rotate(5) scale(0.85)"/><use href="#hero-small-daisy" color="#e7bdb1" transform="translate(419 376) rotate(24) scale(1.05)"/><use href="#hero-small-cosmos" color="#f1dba7" transform="translate(454 368) rotate(-7) scale(1)"/></g><g class="hero-mascot" transform="translate(371 250)"><svg width="100" height="114" viewBox="0 0 110 125">${mascotSvg().replace(/^<svg[^>]*>|<\/svg>$/g, '')}</svg></g><path class="hero-star" d="${starPath}" transform="translate(405 94) scale(2.1) rotate(12)" fill="#e7cf91" stroke="#9c8b5d" stroke-width="1"/><path d="m437 165v11m-5-5h10M118 239l-6 8m-3-19 8 1" stroke="#b1a578" stroke-width="1.7" stroke-linecap="round"/><path d="M395 123q12 9 17 28" stroke="#b9b59d" stroke-width="1.4" stroke-dasharray="3 7" fill="none"/></svg>`;
     }
     const special = giftItems.slice(index * capacity, (index + 1) * capacity).some(isSpecial);
     $('hero-bottle').classList.toggle('has-super-lucky', special);
     const signature = `${n}:${index}:${special}`;
     if (signature === heroBottleSignature) return;
-    $('hero-bottle').innerHTML = bottleSvg(n, index, 'gift', special).replace(/^<svg[^>]*>|<\/svg>$/g, '');
+    $('hero-bottle').innerHTML = bottleSvg(n, index, 'gift', special).replace(/^<svg[^>]*>|<\/svg>$/g, '').replace('<ellipse cx="60" cy="154" rx="44" ry="5" fill="#e6e0d1"/>', '');
     heroBottleSignature = signature;
   }
   function entries(group) {
@@ -221,7 +227,15 @@
   function showDialog(id) {
     const dialog = $(id);
     if (dialog.open) return;
+    clearDialogExit(dialog);
+    const staleIndex = dialogStack.indexOf(dialog); if (staleIndex !== -1) dialogStack.splice(staleIndex, 1);
+    // Compensate only the scrollbar that actually disappears, without a permanent gutter.
+    // Nested modals reuse the measurement made before the first scroll lock.
+    if (!document.querySelector('dialog[open]')) {
+      document.documentElement.style.setProperty('--page-scrollbar-gap', `${Math.max(0, innerWidth - document.documentElement.clientWidth)}px`);
+    }
     returnFocus.set(dialog, document.activeElement); clearArtEffect();
+    dialog.classList.toggle('is-nested', dialogStack.length > 0);
     if (id === 'note-dialog') resetPicker();
     if (id === 'collection-dialog') { renderShelf($('collection-list')); $('collection-status').textContent = collectionUnreadable() ? readWarning : ''; }
     if (id === 'bottle-dialog') renderBottle();
@@ -234,18 +248,56 @@
     }
     dialogStack.push(dialog); dialog.showModal();
     if (['note-dialog', 'vent-dialog', 'quiet-dialog'].includes(id)) write(keys.visited, true);
-    if (id === 'quiet-dialog') updateRain();
+    if ($('quiet-dialog').open) updateRain();
     dialog.querySelector('[data-close]').focus();
   }
   document.querySelectorAll('[data-open]').forEach(button => button.addEventListener('click', () => showDialog(button.dataset.open)));
-  document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
+  const closingDialogs = new Map();
+  function clearDialogExit(dialog) {
+    const exit = closingDialogs.get(dialog); closingDialogs.delete(dialog);
+    if (exit) { clearTimeout(exit.timer); exit.animation?.cancel(); }
+    dialog.classList.remove('is-closing'); dialog.style.removeProperty('--shade-start');
+  }
+  function requestDialogClose(dialog) {
+    if (!dialog.open || closingDialogs.has(dialog)) return;
+    if (dialog.id === 'quiet-dialog') cancelPoemOpening();
+    // Closing cancels a catch immediately; the exit animation must never finish a draw.
+    if (dialog.id === 'note-dialog') {
+      clearTimeout(noteTimer); noteTimer = null; pendingCatch = null; noteBusy = false; noteVersion++;
+      stopLuckyCelebration();
+    }
+    if (reducedMotion.matches || document.hidden) { dialog.close(); return; }
+    const visual = getComputedStyle(dialog), opacity = visual.opacity, transform = visual.transform;
+    dialog.style.setProperty('--shade-start', opacity);
+    dialog.classList.add('is-closing');
+    const exit = { animation: null, timer: null, finish: null };
+    exit.finish = () => {
+      if (closingDialogs.get(dialog) !== exit) return;
+      if (dialog.open) dialog.close();
+      clearDialogExit(dialog);
+    };
+    closingDialogs.set(dialog, exit);
+    // Safari may suspend an animation or lose its completion notification.
+    exit.timer = setTimeout(exit.finish, 220);
+    try {
+      exit.animation = dialog.animate([{ opacity, transform }, { opacity: 0, transform: 'translateY(5px) scale(.99)' }], { duration: 140, easing: 'ease-in', fill: 'forwards' });
+      exit.animation.finished.then(exit.finish).catch(() => {});
+    } catch { exit.finish(); }
+    if ($('quiet-dialog').open) updateRain();
+  }
+  document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => requestDialogClose(button.closest('dialog'))));
   document.querySelectorAll('dialog').forEach(dialog => {
-    dialog.addEventListener('close', () => {
+    dialog.addEventListener('close', event => {
+      // Ignore an old queued close event if this dialog was already reopened.
+      if (dialog.open) { event.stopImmediatePropagation(); return; }
+      clearDialogExit(dialog);
       const index = dialogStack.indexOf(dialog); if (index !== -1) dialogStack.splice(index, 1);
+      updateRain();
       const opener = returnFocus.get(dialog), top = dialogStack.at(-1);
       if (opener?.isConnected && opener.getClientRects().length && (!top || top.contains(opener))) opener.focus();
       else (top?.querySelector('[data-close]') || $('open-daily')).focus();
     });
+    dialog.addEventListener('cancel', event => { event.preventDefault(); requestDialogClose(dialog); });
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Tab') return;
       const controls = [...dialog.querySelectorAll('button, input, textarea, a[href], [tabindex="0"]')].filter(node => !node.disabled && node.getClientRects().length);
@@ -256,8 +308,10 @@
     let startedOutside = false;
     const outside = event => { const rect = dialog.getBoundingClientRect(); return event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom; };
     dialog.addEventListener('pointerdown', event => { startedOutside = event.target === dialog && outside(event); });
-    dialog.addEventListener('click', event => { if (startedOutside && event.target === dialog && outside(event)) dialog.close(); startedOutside = false; });
+    dialog.addEventListener('click', event => { if (startedOutside && event.target === dialog && outside(event)) requestDialogClose(dialog); startedOutside = false; });
   });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) [...closingDialogs.values()].forEach(exit => exit.finish()); });
+  reducedMotion.addEventListener('change', () => { if (reducedMotion.matches) [...closingDialogs.values()].forEach(exit => exit.finish()); });
   document.querySelectorAll('[data-nickname]').forEach(node => { node.textContent = content.profile.nickname; });
   document.title = `${content.profile.nickname}的小瓶子`;
   $('secret-dialog-title').textContent = content.secret.title;
@@ -303,33 +357,86 @@
     startCatch(entry.expression, entry);
   }
   $('open-daily').addEventListener('click', openDaily);
-  // Each discovery has one action, a short motion and one shared response.
+  // Object motions can restart; each floating response has its own lifetime.
   // No discovery mutates a collection or sends anything outside this page.
-  const artActions = new Set(['box', 'letter', 'flower', 'heart', 'star', 'sheep', 'footer-star']);
+  const artActions = new Set(['box', 'letter', 'flower', 'heart', 'star', 'sheep', 'potato', 'footer-star']);
+  const liveBubbles = new Map();
+  let latestBubble = null;
+  function positionArtBubble(entry) {
+    const stage = $('art-stage').getBoundingClientRect(), anchor = entry.anchor.getBoundingClientRect();
+    const bubble = entry.node;
+    bubble.style.maxWidth = Math.max(1, Math.min(260, stage.width - 16)) + 'px';
+    const width = bubble.offsetWidth, height = bubble.offsetHeight;
+    const center = anchor.left + anchor.width / 2 - stage.left + entry.offset;
+    let left = Math.max(8, Math.min(center - width / 2, stage.width - width - 8));
+    let top = Math.max(8, anchor.top - stage.top - height - 14 - entry.slot * (height + 12));
+    const earlier = [];
+    for (const other of liveBubbles.values()) { if (other === entry) break; earlier.push(other.node); }
+    const collides = (x, y) => earlier.filter(node => {
+      const ox = parseFloat(node.style.left), oy = parseFloat(node.style.top);
+      return x < ox + node.offsetWidth + 8 && x + width + 8 > ox && y < oy + node.offsetHeight + 8 && y + height + 8 > oy;
+    });
+    if (collides(left, top).length) {
+      const alternate = [left - width - 12, left + width + 12].find(x => x >= 8 && x + width <= stage.width - 8 && !collides(x, top).length);
+      if (alternate !== undefined) left = alternate;
+      else for (let attempt = 0; attempt < earlier.length && top > 8; attempt++) {
+        const overlaps = collides(left, top); if (!overlaps.length) break;
+        top = Math.max(8, Math.min(...overlaps.map(node => parseFloat(node.style.top))) - height - 12);
+      }
+    }
+    bubble.style.left = left + 'px'; bubble.style.top = top + 'px';
+    bubble.style.setProperty('--bubble-rise', -Math.min(32, top - 8) + 'px');
+  }
+  function removeArtBubble(entry) {
+    clearTimeout(entry.timer); liveBubbles.delete(entry.node); entry.node.remove();
+    if (latestBubble === entry.node) { latestBubble = null; $('art-message').textContent = ''; $('art-message').hidden = true; }
+  }
+  function showArtBubble(kind, button) {
+    const occupied = new Set([...liveBubbles.values()].filter(entry => entry.anchor === button).map(entry => entry.slot));
+    let slot = 0; while (occupied.has(slot)) slot++;
+    const bubble = el('p', 'scene-bubble', copy[kind]); bubble.setAttribute('aria-hidden', 'true');
+    const entry = { node: bubble, anchor: button, slot, offset: [0, -18, 18][slot % 3], timer: null };
+    document.querySelector('.desk-feedback').append(bubble); liveBubbles.set(bubble, entry);
+    latestBubble = bubble; $('art-message').hidden = false; $('art-message').textContent = copy[kind];
+    positionArtBubble(entry);
+    entry.timer = setTimeout(() => removeArtBubble(entry), 4000);
+  }
+  new ResizeObserver(() => liveBubbles.forEach(positionArtBubble)).observe($('art-stage'));
   function clearArtMessage() {
     clearTimeout(artMessageTimer); artMessageTimer = null;
-    $('art-message').textContent = ''; $('sheep-bubble').hidden = true;
+    [...liveBubbles.values()].forEach(removeArtBubble);
+    $('art-message').textContent = ''; $('art-message').hidden = true;
     $('closing-star-status').textContent = ''; $('closing-star').classList.remove('is-lit');
   }
   function clearArtEffect(clearMessage = true) {
     clearBrandEffect();
     clearTimeout(artTimer); artTimer = null;
-    $('art-stage').removeAttribute('data-effect'); $('art-stage').classList.remove('is-sparkling');
+    $('art-stage').removeAttribute('data-effect'); $('art-stage').classList.remove('is-sparkling', 'is-potato-peeking');
     $('art-effects').replaceChildren();
     $('closing-star').classList.remove('is-shining');
     if (clearMessage) clearArtMessage();
   }
   function playArtEffect(kind, button) {
     if (!artActions.has(kind) || document.hidden) return;
-    clearArtEffect();
-    if (kind === 'sheep') $('sheep-bubble').hidden = false;
-    else if (kind === 'footer-star') $('closing-star-status').textContent = copy.footerStar;
-    else $('art-message').textContent = copy[kind];
-    artMessageTimer = setTimeout(clearArtMessage, 4000);
+    clearArtEffect(false);
+    if (kind === 'footer-star') {
+      clearTimeout(artMessageTimer); $('closing-star-status').textContent = copy.footerStar;
+      artMessageTimer = setTimeout(() => { $('closing-star-status').textContent = ''; $('closing-star').classList.remove('is-lit'); }, 4000);
+    } else if (kind !== 'star') showArtBubble(kind, button);
     if (kind === 'footer-star') {
       $('closing-star').classList.add('is-lit');
       void $('closing-star').offsetWidth;
       if (!reducedMotion.matches) $('closing-star').classList.add('is-shining');
+      artTimer = setTimeout(() => clearArtEffect(false), 2100);
+      return;
+    }
+    if (kind === 'star' && reducedMotion.matches) {
+      $('art-stage').classList.add('is-sparkling');
+      artTimer = setTimeout(() => clearArtEffect(false), 2100);
+      return;
+    }
+    if (kind === 'potato' && reducedMotion.matches) {
+      $('art-stage').classList.add('is-potato-peeking');
       artTimer = setTimeout(() => clearArtEffect(false), 2100);
       return;
     }
@@ -340,15 +447,22 @@
     if (kind === 'star') $('art-stage').classList.add('is-sparkling');
     if (kind === 'flower' || kind === 'heart') {
       const origin = button.getBoundingClientRect();
-      const count = kind === 'flower' ? 16 : 5;
+      const count = kind === 'flower' ? 16 : 3;
       for (let i = 0; i < count; i++) {
         const particle = el('span', kind === 'flower' ? 'desk-petal' : 'desk-heart');
         particle.style.left = kind === 'flower' ? `${3 + (i * 37) % 94}%` : `${origin.left + origin.width / 2 - 8}px`;
-        if (kind === 'heart') particle.style.top = `${origin.top + origin.height / 2}px`;
-        particle.style.setProperty('--drift', `${kind === 'flower' ? (i % 2 ? 1 : -1) * (20 + i * 3) : (i - 2) * 14}px`);
+        if (kind === 'heart') {
+          const size = [18, 26, 21][i];
+          particle.style.width = `${size}px`; particle.style.height = `${size}px`;
+          particle.style.left = `${origin.left + origin.width / 2 - size / 2}px`;
+          particle.style.top = `${origin.top + origin.height / 2 - size / 2}px`;
+          particle.style.color = ['#bf8e81', '#b67d72', '#c79d89'][i];
+          particle.style.setProperty('--rise', `${[-65, -92, -74][i]}px`);
+        }
+        particle.style.setProperty('--drift', `${kind === 'flower' ? (i % 2 ? 1 : -1) * (20 + i * 3) : (i - 1) * 38}px`);
         particle.style.setProperty('--turn', `${90 + i * 31}deg`);
         particle.style.setProperty('--petal', ['#e4b191', '#d1bca1', '#d6b0a5', '#b6c09c'][i % 4]);
-        particle.style.animationDelay = `${kind === 'flower' ? ((i * 7) % 11) * .04 : i * .04}s`;
+        particle.style.animationDelay = `${kind === 'flower' ? ((i * 7) % 11) * .04 : .18 + i * .09}s`;
         if (kind === 'flower') particle.style.animationDuration = `${1.3 + (i % 4) * .07}s`;
         if (kind === 'heart') particle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21S2 15 2 8a5 5 0 0 1 10-1 5 5 0 0 1 10 1c0 7-10 13-10 13Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
         $('art-effects').append(particle);
@@ -431,7 +545,7 @@
     $('note-dialog').querySelector('.dialog-body').scrollTop = 0;
   }
   function completeCatch(version) {
-    if (!pendingCatch || version !== noteVersion || !$('note-dialog').open) return;
+    if (!pendingCatch || version !== noteVersion || !$('note-dialog').open || closingDialogs.has($('note-dialog'))) return;
     const { expression, dailyEntry } = pendingCatch;
     cancelNoteReveal();
     if (document.hidden) {
@@ -755,7 +869,72 @@
   resetPicker(); renderCollections();
 
   const quietCopy = content.quiet;
-  $('quiet-foreground').addEventListener('load', () => $('quiet-scene').classList.add('has-reading-art'));
+  $('quiet-foreground').addEventListener('load', () => {
+    $('quiet-foreground').dataset.ready = 'true';
+    $('quiet-scene').classList.add('has-reading-art');
+    $('quiet-book').disabled = false;
+  });
+  // Prepare and decode the small local assets before their dialogs are requested.
+  const foregroundWarmup = new Image(); foregroundWarmup.decoding = 'async'; foregroundWarmup.fetchPriority = 'low';
+  foregroundWarmup.src = $('quiet-foreground').dataset.src;
+  foregroundWarmup.decode().then(() => {
+    $('quiet-foreground').setAttribute('href', $('quiet-foreground').dataset.src);
+    $('quiet-scene').classList.add('has-reading-art'); $('quiet-book').disabled = false;
+  }).catch(() => {});
+  const poemImage = document.querySelector('.poem-card');
+  let poemDecoded = false, poemOpening = false, poemRequestVersion = 0;
+  const poemImageReady = poemImage.decode().then(() => { poemDecoded = true; return true; }).catch(() => false);
+  $('poem-title').textContent = content.poem.title;
+  content.poem.lines.forEach(line => {
+    const p = document.createElement('p'); p.textContent = line; $('poem-lines').append(p);
+  });
+  let bookTaps = 0, lastBookTap = -Infinity, bookTapTimer = null, bookFeedbackTimer = null;
+  function cancelPoemOpening() {
+    poemRequestVersion++; poemOpening = false;
+    $('quiet-book').classList.remove('is-loading'); resetBookTaps();
+  }
+  function openPreparedPoem(loaded) {
+    const paper = document.querySelector('.poem-paper');
+    paper.classList.toggle('has-poem-fallback', !loaded); poemImage.hidden = !loaded;
+    $('poem-title').classList.toggle('sr-only', loaded); $('poem-lines').classList.toggle('sr-only', loaded);
+    $('quiet-book').focus({ preventScroll: true }); showDialog('poem-dialog');
+  }
+  function requestPoem() {
+    if (poemDecoded) { openPreparedPoem(true); return; }
+    const version = ++poemRequestVersion; poemOpening = true;
+    $('quiet-book').classList.add('is-loading', 'is-touched');
+    poemImageReady.then(loaded => {
+      if (version !== poemRequestVersion || document.hidden || !$('quiet-dialog').open || closingDialogs.has($('quiet-dialog')) || dialogStack.at(-1) !== $('quiet-dialog')) return;
+      poemOpening = false; $('quiet-book').classList.remove('is-loading', 'is-touched');
+      openPreparedPoem(loaded);
+    });
+  }
+  function resetBookTaps() {
+    clearTimeout(bookTapTimer); bookTapTimer = null;
+    clearTimeout(bookFeedbackTimer); bookFeedbackTimer = null;
+    $('quiet-book').classList.remove('is-touched');
+    bookTaps = 0; lastBookTap = -Infinity;
+  }
+  $('quiet-book').addEventListener('click', () => {
+    if (document.hidden || poemOpening || dialogStack.at(-1) !== $('quiet-dialog')) return;
+    const now = performance.now();
+    if (now - lastBookTap > 2000) bookTaps = 0;
+    lastBookTap = now; bookTaps++;
+    clearTimeout(bookTapTimer);
+    if (bookTaps === 2) {
+      resetBookTaps();
+      requestPoem();
+    } else {
+      $('quiet-book').classList.add('is-touched');
+      bookFeedbackTimer = setTimeout(() => $('quiet-book').classList.remove('is-touched'), 1400);
+      bookTapTimer = setTimeout(resetBookTaps, 2001);
+    }
+  });
+  $('quiet-dialog').addEventListener('close', () => {
+    cancelPoemOpening();
+    if ($('poem-dialog').open) $('poem-dialog').close();
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelPoemOpening(); });
   $('quiet-entry').textContent = quietCopy.entry;
   $('quiet-note').textContent = quietCopy.note;
   quietCopy.copy.forEach((line, index) => {
@@ -783,7 +962,15 @@
     const scene = $('quiet-scene');
     scene.dataset.weather = weather;
     scene.classList.toggle('is-still', stopped);
-    scene.classList.toggle('is-inactive', !$('quiet-dialog').open || document.hidden);
+    const inactive = !$('quiet-dialog').open || document.hidden || closingDialogs.has($('quiet-dialog')) || dialogStack.at(-1) !== $('quiet-dialog');
+    scene.classList.toggle('is-inactive', inactive);
+    scene.getAnimations({ subtree: true }).forEach(animation => {
+      if (animation.effect?.getTiming().iterations !== Infinity) return;
+      const target = animation.effect.target;
+      const shouldPause = stopped || inactive || target.closest('.weather-rain') && weather !== 'rain';
+      if (shouldPause && animation.playState === 'running') animation.pause();
+      else if (!shouldPause && animation.playState !== 'running') animation.play();
+    });
     $('quiet-scene-description').textContent = quietCopy.weather[weather].description;
     document.querySelectorAll('.weather-button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.weather === weather)));
     $('toggle-rain').textContent = reducedMotion.matches ? quietCopy.reduced : stopped ? quietCopy.resume : quietCopy.pause;
@@ -802,6 +989,16 @@
   });
   $('quiet-dialog').addEventListener('close', updateRain);
   document.addEventListener('visibilitychange', updateRain);
+  window.addEventListener('pageshow', () => { document.body.classList.toggle('page-hidden', document.hidden); updateRain(); });
+  window.addEventListener('focus', updateRain);
+  window.addEventListener('pagehide', () => {
+    [...closingDialogs.values()].forEach(exit => exit.finish());
+    cancelPoemOpening(); clearArtEffect();
+    $('quiet-scene').classList.add('is-inactive');
+    $('quiet-scene').getAnimations({ subtree: true }).forEach(animation => {
+      if (animation.effect?.getTiming().iterations === Infinity) animation.pause();
+    });
+  });
   reducedMotion.addEventListener('change', updateRain);
   updateRain();
 

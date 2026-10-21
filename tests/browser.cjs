@@ -17,10 +17,11 @@ const server = createServer();
 const results = path.resolve(__dirname, '../test-results');
 
 async function check(name, run) {
+  if (process.env.TEST_FILTER && !name.includes(process.env.TEST_FILTER)) return;
   await run(); passed++; console.log(`PASS ${name}`);
 }
 async function fresh(options = {}) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', timezoneId: 'Asia/Tokyo', ...options.context });
+  const context = await (options.browser || browser).newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', timezoneId: 'Asia/Tokyo', ...options.context });
   const issues = [];
   context.on('request', request => {
     if (!request.url().startsWith(origin + '/') || request.method() !== 'GET') issues.push(request.url());
@@ -55,7 +56,8 @@ async function fresh(options = {}) {
     }
   }, { seed: options.seed || {}, blocked: !!options.blocked, quota: options.quota || '', pool: options.pool, random: !!options.random, letters: options.letters, lucky: !!options.lucky });
   if (!options.realTime) await page.clock.install({ time: new Date('2026-10-19T14:00:00+09:00') });
-  await page.goto(origin + (options.subdir ? '/LuckyXinxin/' : '/'));
+  if (options.beforeGoto) await options.beforeGoto(page);
+  await page.goto(origin + (options.subdir ? '/LuckyXinxin/' : '/'), { waitUntil: options.waitUntil || 'load' });
   await page.locator('#open-daily').waitFor();
   return { page, context, issues, close: async () => { assert.deepEqual(issues, [], 'Runtime errors, external requests, or upload'); await context.close(); } };
 }
@@ -664,13 +666,15 @@ async function next(page) { await page.locator('#next-note').click(); await page
     assert.equal(ids.length, 64); assert.deepEqual(ids, Array.from(original.window.EMOTION_BOX_CONTENT.messages, message => message.id));
     for (const kind of ['box', 'letter', 'flower', 'heart']) {
       assert.equal(await page.locator(`[data-art="${kind}"]`).count(), 1);
-      assert.ok((await page.evaluate(kind => window.EMOTION_BOX_CONTENT.interactions[kind], kind)).startsWith(original.window.EMOTION_BOX_CONTENT.interactions[kind]));
+      const current = await page.evaluate(kind => window.EMOTION_BOX_CONTENT.interactions[kind], kind);
+      if (kind === 'heart') assert.equal(current, '这颗也留给你~qwq');
+      else assert.ok(current.startsWith(original.window.EMOTION_BOX_CONTENT.interactions[kind]));
     }
     assert.equal(await page.locator('#desk-box .box-art .art-letter,#desk-box .box-art .art-flower,#desk-box .box-art .art-heart').count(), 3);
-    assert.equal(await page.locator('#package-label').textContent(), 'To馨馨'); assert.equal(await page.locator('#art-stage .art-hotspot').count(), 8); await t.close();
+    assert.equal(await page.locator('#package-label').textContent(), 'To馨馨'); assert.equal(await page.locator('#art-stage .art-hotspot').count(), 9); await t.close();
   });
 
-  await check('first and returning layouts keep the daily entry visible and all eight scene hotspots separate', async () => {
+  await check('first and returning layouts keep the daily entry visible and all nine scene hotspots separate', async () => {
     for (const returning of [false, true]) {
       const t = await fresh({ seed: returning ? { [prefix + 'visited']: true } : {} }); const { page } = t;
       for (const width of [320, 390, 430, 760, 768, 900, 1280]) {
@@ -689,7 +693,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
             mobileOrder: get('#open-daily').bottom < get('.choices').top && get('.choices').bottom <= get('.desk-props').top,
             feedbackHeight: get('#art-message').height, boxWidth: get('#desk-box').width };
         });
-        assert.equal(bounds.overflow, false); assert.equal(bounds.minTarget, true); assert.deepEqual(bounds.overlaps, []); assert.equal(bounds.copyVisible, true); assert.ok(bounds.dailyTop > 0 && bounds.dailyBottom < (width === 320 ? 640 : 700)); assert.ok(bounds.feedbackHeight >= 28, `Response area too short at ${width}px: ${bounds.feedbackHeight}`); assert.ok(bounds.boxWidth >= 240);
+        assert.equal(bounds.overflow, false); assert.equal(bounds.minTarget, true); assert.deepEqual(bounds.overlaps, []); assert.equal(bounds.copyVisible, true); assert.ok(bounds.dailyTop > 0 && bounds.dailyBottom < (width === 320 ? 640 : 700)); assert.equal(bounds.feedbackHeight, 0, 'No reserved feedback row'); assert.ok(bounds.boxWidth >= 240);
         if (width <= 760) assert.equal(bounds.mobileOrder, true);
         if ([390, 768, 1280].includes(width)) await page.screenshot({ path: path.join(results, `desk-${returning ? 'returning' : 'first'}-${width}.png`), fullPage: true });
       }
@@ -715,51 +719,172 @@ async function next(page) { await page.locator('#next-note').click(); await page
       assert.ok(layout.bottleWidth <= 155); assert.equal(layout.sharesGreeting, true); assert.equal(layout.introBelow, true); assert.equal(layout.giftSeparate, true); assert.ok(layout.giftHeight < 350); assert.ok(layout.dailyBottom < height); assert.equal(layout.overflow, false); assert.equal(layout.footerTarget, true); assert.equal(layout.sheepBehindBox, true);
       await page.screenshot({ path: path.join(results, `iphone15-pro-max-home-${height}.png`), fullPage: true, scale: 'css' });
     }
-    await page.locator('.hotspot-bottle').tap(); await closeDialog(page, 'collection-dialog'); await page.locator('#touch-star').tap(); assert.ok((await text(page, '#art-message')).length);
+    await page.locator('.hotspot-bottle').tap(); await closeDialog(page, 'collection-dialog'); await page.locator('#touch-star').tap(); assert.equal(await page.locator('.scene-bubble').count(), 0);
     await page.locator('#open-secret').tap(); await closeDialog(page, 'secret-dialog'); assert.equal(await page.locator('#open-secret').evaluate(node => node === document.activeElement), true); await t.close();
   });
 
-  await check('sheep comic and closing star respond to touch and keyboard, cancel repeats and respect reduced motion', async () => {
+  await check('sheep floating response and closing star respond to touch and keyboard, cancel repeats and respect reduced motion', async () => {
     const { defaultBrowserType, ...device } = require('playwright').devices['iPhone 15 Pro Max'];
     const t = await fresh({ context: { ...device, reducedMotion: 'no-preference' } }); const { page } = t;
     await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
-    assert.equal(await page.locator('#sheep-bubble').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false);
-    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#sheep-bubble').innerText(), 'Lucky～⭐'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), 'sheep'); assert.equal(await text(page, '#art-message'), '');
-    await page.clock.runFor(1000); await page.locator('[data-art="sheep"]').tap(); await page.clock.runFor(3100); assert.equal(await page.locator('#sheep-bubble').isVisible(), true);
-    await page.clock.runFor(899); assert.equal(await page.locator('#sheep-bubble').isVisible(), true); await page.clock.runFor(1); assert.equal(await page.locator('#sheep-bubble').isVisible(), false);
-    await page.locator('[data-art="sheep"]').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('#sheep-bubble').isVisible(), true);
-    await page.locator('#closing-star').tap(); assert.equal(await page.locator('#sheep-bubble').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-shining')), true); assert.equal(await text(page, '#closing-star-status'), '给今天留一点小星光。');
+    assert.equal(await page.locator('#art-message').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false);
+    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#art-message').innerText(), 'Lucky馨馨超Lucky~'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), 'sheep'); assert.equal(await text(page, '#art-message'), 'Lucky馨馨超Lucky~');
+    await page.clock.runFor(1000); await page.locator('[data-art="sheep"]').tap(); await page.clock.runFor(3100); assert.equal(await page.locator('#art-message').isVisible(), true);
+    await page.clock.runFor(899); assert.equal(await page.locator('#art-message').isVisible(), true); await page.clock.runFor(1); assert.equal(await page.locator('#art-message').isVisible(), false);
+    await page.locator('[data-art="sheep"]').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('#art-message').isVisible(), true);
+    await page.locator('#closing-star').tap(); assert.equal(await page.locator('#art-message').isVisible(), true); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-shining')), true); assert.equal(await text(page, '#closing-star-status'), '给今天留一点小星光。');
     await page.clock.runFor(1000); await page.locator('#closing-star').tap(); await page.clock.runFor(1100); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-shining')), true);
     await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#closing-star:not(.is-shining)').waitFor({ state: 'attached' }); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), true);
     await page.clock.runFor(2899); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), true); await page.clock.runFor(1); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false);
-    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#sheep-bubble').isVisible(), true); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null);
-    await page.locator('#closing-star').focus(); await page.keyboard.press('Space'); assert.equal(await page.locator('#sheep-bubble').isVisible(), false); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit') && !node.classList.contains('is-shining')), true);
+    await page.locator('[data-art="sheep"]').tap(); assert.equal(await page.locator('#art-message').isVisible(), true); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null);
+    await page.locator('#closing-star').focus(); await page.keyboard.press('Space'); assert.equal(await page.locator('#art-message').isVisible(), true); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit') && !node.classList.contains('is-shining')), true);
     await page.locator('.choice-note').tap(); assert.equal(await page.locator('#closing-star').evaluate(node => node.classList.contains('is-lit')), false); await closeNote(page);
-    await page.locator('[data-art="sheep"]').tap(); await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#sheep-bubble').isVisible(), false);
-    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#sheep-bubble').isVisible(), false);
+    await page.locator('[data-art="sheep"]').tap(); await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#art-message').isVisible(), false);
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#art-message').isVisible(), false);
     await countIs(page, 0); assert.equal(await gifts(page), null); assert.deepEqual(await page.evaluate(() => Object.keys(localStorage)), [prefix + 'visited']); await t.close();
     const live = await fresh({ realTime: true, context: { ...device, reducedMotion: 'no-preference' } });
     await live.page.locator('[data-art="sheep"]').tap(); await live.page.waitForTimeout(500); await live.page.screenshot({ path: path.join(results, 'iphone15-pro-max-sheep.png'), scale: 'css' });
     await live.page.locator('#closing-star').tap(); await live.page.waitForTimeout(600); await live.page.screenshot({ path: path.join(results, 'iphone15-pro-max-star.png'), scale: 'css' }); await live.close();
   });
 
-  await check('all five tabletop discoveries animate, clean up, retain feedback and never add collection records', async () => {
+  await check('classic scrollbars retain page width through modal and nested modal open and close', async () => {
+    const classic = await chromium.launch({ headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--disable-features=OverlayScrollbar'], ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
+    try {
+      for (const classicMode of [true, false]) for (const width of [390, 1280]) {
+        const t = await fresh({ browser: classicMode ? classic : browser, context: { viewport: { width, height: 844 } } }); const { page } = t;
+        if (classicMode) await page.addStyleTag({ content: '::-webkit-scrollbar{width:17px}' });
+        const measure = () => page.locator('.site-shell').evaluate(node => { const r = node.getBoundingClientRect(); return { left: r.left, width: r.width }; });
+        const gutter = await page.evaluate(() => innerWidth - document.documentElement.clientWidth);
+        assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter), 'auto');
+        assert.equal(await page.locator('body').evaluate(node => getComputedStyle(node).paddingRight), '0px');
+        if (classicMode) assert.equal(gutter, 17, 'Exercise a scrollbar that consumes layout width');
+        else assert.equal(gutter, 0, 'Overlay scrollbars must not leave an artificial stripe');
+        const initial = await measure();
+        await page.locator('.choice-quiet').click(); assert.deepEqual(await measure(), initial);
+        assert.equal(await page.locator('body').evaluate(node => parseFloat(getComputedStyle(node).paddingRight)), gutter);
+        if (width === 1280) await page.screenshot({ path: path.join(results, `scrollbar-modal-${classicMode ? 'classic' : 'overlay'}.png`) });
+        await page.waitForFunction(() => !document.getElementById('quiet-book').disabled);
+        await page.locator('#quiet-book').click({ clickCount: 2 }); assert.deepEqual(await measure(), initial);
+        await closeDialog(page, 'poem-dialog'); assert.deepEqual(await measure(), initial);
+        await closeDialog(page, 'quiet-dialog'); assert.deepEqual(await measure(), initial);
+        assert.equal(await page.locator('body').evaluate(node => getComputedStyle(node).paddingRight), '0px');
+        await page.locator('.choice-note').click(); assert.deepEqual(await measure(), initial);
+        await closeDialog(page, 'note-dialog'); assert.deepEqual(await measure(), initial);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+        await t.close();
+      }
+    } finally { await classic.close(); }
+  });
+
+  await check('dialog transitions enter and close smoothly, preserve focus and honor reduced motion', async () => {
+    const t = await fresh({ realTime: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.locator('.choice-quiet').click();
+    assert.equal(await page.locator('#quiet-dialog').evaluate(node => getComputedStyle(node).animationName), 'dialog-arrive');
+    await page.locator('#quiet-dialog [data-close]').evaluate(node => { node.click(); node.click(); });
+    assert.equal(await page.locator('#quiet-dialog').evaluate(node => node.open && node.classList.contains('is-closing')), true);
+    await page.waitForFunction(() => !document.getElementById('quiet-dialog').open);
+    await page.waitForFunction(() => document.activeElement.classList.contains('choice-quiet'));
+    await page.locator('.choice-quiet').click();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.getElementById('quiet-dialog').open);
+    assert.equal(await page.locator('#quiet-dialog.is-closing').count(), 0);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.locator('.choice-quiet').click();
+    assert.equal(await page.locator('#quiet-dialog').evaluate(node => getComputedStyle(node).animationName), 'none');
+    await closeDialog(page, 'quiet-dialog');
+    await t.close();
+  });
+
+  await check('concurrent bubbles keep independent expiry and title star never creates a bubble', async () => {
+    const t = await fresh(); const { page } = t;
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    await page.locator('[data-art="sheep"]').click();
+    const first = await page.locator('.scene-bubble').first().elementHandle();
+    await page.clock.runFor(1000);
+    await page.locator('[data-art="heart"]').click();
+    await page.locator('[data-art="sheep"]').click();
+    assert.equal(await page.locator('.scene-bubble').count(), 3);
+    assert.deepEqual(await page.locator('.scene-bubble').allTextContents(), ['Lucky馨馨超Lucky~', '这颗也留给你~qwq', 'Lucky馨馨超Lucky~']);
+    const before = await page.locator('.scene-bubble').allTextContents();
+    await page.locator('#touch-star').click();
+    assert.deepEqual(await page.locator('.scene-bubble').allTextContents(), before);
+    assert.equal(await page.locator('#art-stage').evaluate(node => node.classList.contains('is-sparkling')), true);
+    await page.screenshot({ path: path.join(results, 'concurrent-bubbles.png'), fullPage: true });
+    await page.clock.runFor(2999); assert.equal(await page.locator('.scene-bubble').count(), 3);
+    await page.clock.runFor(1); assert.equal(await first.evaluate(node => node.isConnected), false);
+    assert.equal(await page.locator('.scene-bubble').count(), 2);
+    await page.clock.runFor(999); assert.equal(await page.locator('.scene-bubble').count(), 2);
+    await page.clock.runFor(1); assert.equal(await page.locator('.scene-bubble').count(), 0);
+    await page.locator('[data-art="sheep"]').click({ clickCount: 3 });
+    assert.equal(await page.locator('.scene-bubble').count(), 3);
+    const positions = await page.locator('.scene-bubble').evaluateAll(nodes => nodes.map(node => node.style.top + ':' + node.style.left));
+    assert.equal(new Set(positions).size, 3);
+    await page.locator('.choice-quiet').click(); assert.equal(await page.locator('.scene-bubble').count(), 0);
+    await closeDialog(page, 'quiet-dialog');
+    await page.locator('[data-art="heart"]').click();
+    await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await page.locator('.scene-bubble').count(), 0);
+    await t.close();
+  });
+
+  await check('floating feedback rises and fades without moving the shelf, with meadow contact shadows', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    assert.equal(await page.locator('#sheep-bubble').count(), 0);
+    const shelfTop = () => page.locator('.collection-section').evaluate(node => node.getBoundingClientRect().top + scrollY);
+    assert.equal(await page.locator('.box-ground-shadow,.sheep-ground-shadow').count(), 2);
+    assert.match(await page.locator('.art-sheep image').getAttribute('href'), /sheep-outlined-v3/);
+    for (const width of [320, 390, 430, 768, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      const before = await shelfTop();
+      assert.ok(await page.locator('.desk-floor').evaluate(node => node.offsetHeight >= 134));
+      const gap = await page.evaluate(() => document.querySelector('.collection-section').getBoundingClientRect().top - document.querySelector('.desk-props').getBoundingClientRect().bottom);
+      assert.ok(gap <= 4, `Reserved gap ${gap} at ${width}`);
+      for (const kind of ['sheep', 'box', 'letter', 'flower', 'heart', 'potato']) {
+        await page.locator(`[data-art="${kind}"]`).click();
+        await animationFrame(page, '.scene-bubble:last-child', 600);
+        const early = await page.locator('.scene-bubble').last().evaluate(node => {
+          const r = node.getBoundingClientRect(), stage = document.querySelector('#art-stage').getBoundingClientRect();
+          return { y: r.y, opacity: Number(getComputedStyle(node).opacity), fits: r.left >= stage.left && r.right <= stage.right && r.top >= stage.top };
+        });
+        assert.ok(early.fits); assert.equal(early.opacity, 1);
+        assert.ok(Math.abs(await shelfTop() - before) < 1);
+        if (kind === 'sheep') {
+          assert.equal(await page.locator('#art-message').innerText(), 'Lucky馨馨超Lucky~');
+          await page.screenshot({ path: path.join(results, `floating-sheep-${width}.png`), fullPage: true });
+        }
+        await animationFrame(page, '.scene-bubble:last-child', 3600);
+        const late = await page.locator('.scene-bubble').last().evaluate(node => ({ y: node.getBoundingClientRect().y, opacity: Number(getComputedStyle(node).opacity) }));
+        assert.ok(late.y < early.y); assert.ok(late.opacity < .5);
+      }
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.locator('[data-art="sheep"]').click();
+    assert.equal(await page.locator('.scene-bubble').last().evaluate(node => getComputedStyle(node).animationName), 'none');
+    await t.close();
+  });
+
+  await check('tabletop discoveries animate, clean up, retain feedback and never add collection records', async () => {
     const t = await fresh({ context: { reducedMotion: 'no-preference', viewport: { width: 1280, height: 900 } } }); const { page } = t;
     await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
     const baseline = await page.locator('.desk-feedback').boundingBox();
-    for (const kind of ['box', 'letter', 'flower', 'heart', 'star']) {
+    for (const kind of ['box', 'letter', 'flower', 'heart', 'potato']) {
       await page.locator(`[data-art="${kind}"]`).click();
       assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), kind);
       assert.equal(await text(page, '#art-message'), await page.evaluate(kind => window.EMOTION_BOX_CONTENT.interactions[kind], kind));
       await animationFrame(page, '#art-stage', kind === 'letter' ? 950 : 650);
-      if (kind === 'box') assert.ok(Number(await page.locator('.packed-lid').evaluate(node => getComputedStyle(node).opacity)) > .9);
+      if (kind === 'box') {
+        assert.ok(Number(await page.locator('.packed-lid').evaluate(node => getComputedStyle(node).opacity)) > .9);
+        for (const selector of ['.art-potato', '.box-flowers']) assert.equal(Number(await page.locator(selector).evaluate(node => getComputedStyle(node).opacity)), 0);
+      }
+      if (kind === 'potato') assert.ok(await page.locator('.art-potato').evaluate(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m42 < 0));
+      if (kind === 'heart') assert.equal(await page.locator('.desk-heart').evaluateAll(nodes => new Set(nodes.map(node => node.style.width)).size), 3);
       if (kind === 'letter') assert.ok(Number(await page.locator('.paper-plane').evaluate(node => getComputedStyle(node).opacity)) > .9);
       if (kind === 'flower') {
         assert.equal(await page.locator('#art-effects').evaluate(node => getComputedStyle(node).position), 'fixed');
         const spread = await page.locator('.desk-petal').evaluateAll(nodes => nodes.map(node => parseFloat(node.style.left)));
         assert.ok(Math.min(...spread) < 10 && Math.max(...spread) > 90);
       }
-      if (['flower', 'heart'].includes(kind)) assert.equal(await page.locator('#art-effects > span').count(), kind === 'flower' ? 16 : 5);
+      if (['flower', 'heart'].includes(kind)) assert.equal(await page.locator('#art-effects > span').count(), kind === 'flower' ? 16 : 3);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.clock.runFor(2100); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null); assert.equal(await page.locator('#art-effects > span').count(), 0); assert.ok((await text(page, '#art-message')).length);
       const after = await page.locator('.desk-feedback').boundingBox(); assert.equal(after.height, baseline.height);
@@ -777,15 +902,15 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await live.close();
   });
 
-  await check('tabletop rapid repeats, keyboard, modal focus, background and reduced motion have one active response', async () => {
+  await check('tabletop motion restarts while bubbles retain their own lifetime and respect modal cleanup', async () => {
     const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
     await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
     await page.locator('[data-art="flower"]').focus(); await page.keyboard.press('Enter'); assert.equal(await page.locator('.desk-petal').count(), 16);
-    await page.clock.runFor(1000); await page.locator('[data-art="heart"]').click(); assert.equal(await page.locator('.desk-petal').count(), 0); assert.equal(await page.locator('.desk-heart').count(), 5);
+    await page.clock.runFor(1000); await page.locator('[data-art="heart"]').click(); assert.equal(await page.locator('.desk-petal').count(), 0); assert.equal(await page.locator('.desk-heart').count(), 3);
     await page.clock.runFor(1100); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), 'heart');
-    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#art-stage:not([data-effect])').waitFor({ state: 'attached' }); assert.equal(await text(page, '#art-message'), '这颗也留给你。'); assert.equal(await page.locator('#art-effects > span').count(), 0);
+    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#art-stage:not([data-effect])').waitFor({ state: 'attached' }); assert.equal(await text(page, '#art-message'), '这颗也留给你~qwq'); assert.equal(await page.locator('#art-effects > span').count(), 0);
     await page.clock.runFor(2899); assert.ok((await text(page, '#art-message')).length); await page.clock.runFor(1); assert.equal(await text(page, '#art-message'), '');
-    for (const kind of ['box', 'letter', 'flower', 'heart', 'star']) { await page.locator(`[data-art="${kind}"]`).focus(); await page.keyboard.press('Space'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null); assert.ok((await text(page, '#art-message')).length); }
+    for (const kind of ['box', 'letter', 'flower', 'heart', 'potato']) { await page.locator(`[data-art="${kind}"]`).focus(); await page.keyboard.press('Space'); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null); assert.ok((await text(page, '#art-message')).length); }
     await page.emulateMedia({ reducedMotion: 'no-preference' }); await page.locator('[data-art="letter"]').click(); await page.locator('[data-art="letter"]').click();
     await animationFrame(page, '#art-stage', 950); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false); await page.screenshot({ path: path.join(results, 'desk-paper-plane-mobile.png') });
     await page.locator('.hotspot-bottle').click(); assert.equal(await text(page, '#art-message'), ''); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null); await closeDialog(page, 'collection-dialog'); assert.equal(await page.locator('.hotspot-bottle').evaluate(node => node === document.activeElement), true);
@@ -804,7 +929,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     const privateItem = { ...privateRecords(1)[0], text: '我自己写的一颗星。' };
     const t = await fresh({ seed: { [giftKey]: { version: 2, items: [item] }, [prefix + 'vents']: [privateItem] } }); const { page } = t;
     await countIs(page, 2);
-    assert.equal(await page.locator('#touch-star').getAttribute('aria-label'), '摸摸这颗幸运星');
+    assert.equal(await page.locator('#touch-star').getAttribute('aria-label'), '让瓶子周围闪起小星星');
     assert.equal(await page.locator('.shelf-note').innerText(), '每瓶10滴，慢慢收就好。');
     assert.deepEqual(await page.locator('dialog h2').evaluateAll(nodes => nodes.filter(node => node.textContent.endsWith('。')).map(node => node.textContent)), []);
     await page.locator('.choice-note').click(); assert.equal(await text(page, '#note-dialog-title'), '随手接住一滴');
@@ -1100,14 +1225,88 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await page.locator('#remove-note').click(); await other.waitForFunction(() => document.getElementById('drop-count').textContent.includes('1滴')); await countIs(other, 1); await t.close();
   });
 
-  await check('reading girl layers over all three weathers, loads locally on demand and respects motion preferences', async () => {
-    const t = await fresh({ subdir: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
-    const assetName = 'quiet-reading-foreground-v1.png'; let requests = 0;
-    page.on('request', request => { if (request.url().endsWith(assetName)) requests++; });
-    assert.equal(await page.locator('#quiet-foreground').getAttribute('href'), null);
-    const loaded = page.waitForResponse(response => response.url().endsWith(assetName));
-    await page.locator('.choice-quiet').click(); const response = await loaded; assert.equal(response.status(), 200); assert.match(response.headers()['content-type'], /image\/png/);
-    await page.locator('#quiet-scene.has-reading-art').waitFor(); assert.equal(requests, 1);
+  await check('slow poem loading waits for decoding, stays cancellable, and has a readable failure fallback', async () => {
+    let totalBytes = 0;
+    for (const file of ['quiet-nick-judy-plush-v1.webp', 'quiet-reading-foreground-v4.webp', 'sheep-outlined-v3.webp', 'spring-poem-card-transparent-v2.webp']) totalBytes += (await fs.stat(path.join(__dirname, '../assets', file))).size;
+    assert.ok(totalBytes < 3500000, `Artwork transfer budget exceeded: ${totalBytes}`);
+    for (const cancel of [false, true]) {
+      let release; const gate = new Promise(resolve => { release = resolve; });
+      const t = await fresh({ waitUntil: 'domcontentloaded', beforeGoto: page => page.route('**/spring-poem-card-transparent-v2.webp', async route => { await gate; await route.continue(); }) }); const { page } = t;
+      await page.locator('.choice-quiet').click(); await page.waitForFunction(() => !document.getElementById('quiet-book').disabled);
+      await page.locator('#quiet-book').click({ clickCount: 2 });
+      assert.equal(await page.locator('#poem-dialog').evaluate(node => node.open), false);
+      assert.equal(await page.locator('#quiet-book').evaluate(node => node.classList.contains('is-loading')), true);
+      if (cancel) await closeDialog(page, 'quiet-dialog');
+      release(); await page.locator('.poem-card').evaluate(node => node.decode());
+      if (cancel) {
+        await page.waitForTimeout(100);
+        assert.equal(await page.locator('#poem-dialog').evaluate(node => node.open), false);
+        await page.locator('.choice-quiet').click(); await page.locator('#quiet-book').click({ clickCount: 2 });
+      }
+      await page.locator('#poem-dialog[open]').waitFor();
+      assert.equal(await page.locator('.poem-card').evaluate(node => node.naturalWidth), 1091);
+      assert.equal(await page.locator('#quiet-book').evaluate(node => node.classList.contains('is-loading')), false);
+      await t.close();
+    }
+    const t = await fresh({ beforeGoto: page => page.route('**/spring-poem-card-transparent-v2.webp', route => route.abort()) }); const { page } = t;
+    await page.locator('.choice-quiet').click(); await page.waitForFunction(() => !document.getElementById('quiet-book').disabled);
+    await page.locator('#quiet-book').click({ clickCount: 2 }); await page.locator('#poem-dialog[open]').waitFor();
+    assert.equal(await page.locator('.poem-card').isVisible(), false);
+    assert.equal(await page.locator('#poem-title').isVisible(), true);
+    assert.deepEqual(await page.locator('#poem-lines p').allTextContents(), ['春风一夜花初放', '季雨几日木又生', '前路纵遥终有至', '且将欢意赴新程']);
+    await page.screenshot({ path: path.join(results, 'poem-image-failure-fallback.png') });
+    await t.close();
+  });
+
+  await check('interrupted exit animations cannot freeze dialogs and page restoration resumes only permitted motion', async () => {
+    const t = await fresh({ realTime: true, context: { reducedMotion: 'no-preference' }, beforeGoto: page => page.addInitScript(() => {
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (frames, options) {
+        const animation = animate.call(this, frames, options);
+        if (this instanceof HTMLDialogElement && options?.duration === 140) {
+          animation.pause(); Object.defineProperty(animation, 'finished', { value: new Promise(() => {}) });
+        }
+        return animation;
+      };
+    }) }); const { page } = t;
+    await page.locator('.choice-quiet').click();
+    await page.locator('#quiet-dialog [data-close]').click();
+    await page.waitForFunction(() => !document.getElementById('quiet-dialog').open, null, { timeout: 1500 });
+    assert.equal(await page.locator('#quiet-dialog.is-closing').count(), 0);
+    await page.locator('.choice-quiet').click();
+    const motion = () => page.locator('.tea-steam path').first().evaluate(node => node.getAnimations()[0]?.playState);
+    const restore = async (expectAnimation = true) => {
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+      if (expectAnimation) assert.equal(await motion(), 'paused');
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+    };
+    await restore(); assert.equal(await motion(), 'running');
+    const before = await page.locator('.tea-steam path').first().evaluate(node => node.getAnimations()[0].currentTime);
+    await page.waitForTimeout(120);
+    const after = await page.locator('.tea-steam path').first().evaluate(node => node.getAnimations()[0].currentTime);
+    assert.ok(after > before + 30, 'Restored animation must actually advance');
+    await page.locator('#toggle-rain').click(); await restore(); assert.equal(await motion(), 'paused');
+    await page.locator('#toggle-rain').click(); assert.equal(await motion(), 'running');
+    await page.locator('#quiet-book').click({ clickCount: 2 }); await page.locator('#poem-dialog[open]').waitFor();
+    assert.equal(await motion(), 'paused');
+    await closeDialog(page, 'poem-dialog'); assert.equal(await motion(), 'running');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await restore(false); assert.equal(await page.locator('.tea-steam path').first().evaluate(node => node.getAnimations().length), 0);
+    await t.close();
+  });
+
+  await check('reading girl is prepared before opening, respects weather and motion, and is reused', async () => {
+    const assetName = 'quiet-reading-foreground-v4.webp'; let requests = 0, response = null;
+    const t = await fresh({ subdir: true, context: { reducedMotion: 'no-preference' }, beforeGoto: page => {
+      page.on('request', request => { if (request.url().endsWith(assetName)) requests++; });
+      page.on('response', result => { if (result.url().endsWith(assetName)) response = result; });
+    } }); const { page } = t;
+    await page.waitForFunction(() => document.getElementById('quiet-foreground').dataset.ready === 'true');
+    const initialRequests = requests;
+    assert.ok(initialRequests > 0); assert.equal(response.status(), 200); assert.match(response.headers()['content-type'], /image\/webp/);
+    assert.equal(await page.locator('#quiet-dialog').evaluate(node => node.open), false);
+    await page.locator('.choice-quiet').click();
+    await page.locator('#quiet-scene.has-reading-art').waitFor(); assert.equal(requests, initialRequests);
     assert.equal(await page.locator('#quiet-foreground').evaluate(node => node.getAnimations({ subtree: true }).length), 0);
     const foreground = await page.locator('#quiet-foreground').getAttribute('href');
     const motion = () => page.locator('.tea-steam path').first().evaluate(node => getComputedStyle(node).animationPlayState);
@@ -1146,10 +1345,122 @@ async function next(page) { await page.locator('#next-note').click(); await page
     assert.equal(await page.locator('#quiet-dialog .dialog-body').evaluate(node => node.scrollWidth > node.clientWidth), false);
     await closeDialog(page, 'quiet-dialog'); assert.equal(await motion(), 'paused');
     assert.equal(await page.locator('.choice-quiet').evaluate(node => node === document.activeElement), true);
-    await page.locator('.choice-quiet').click(); assert.equal(requests, 1);
+    await page.locator('.choice-quiet').click(); assert.equal(requests, initialRequests);
     await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#toggle-rain:disabled').waitFor({ state: 'attached' });
     assert.equal(await page.locator('.tea-steam path').first().evaluate(node => getComputedStyle(node).animationName), 'none');
     assert.equal(await page.locator('#quiet-foreground').getAttribute('href'), foreground); await t.close();
+  });
+
+  await check('book poem needs two consecutive taps with feedback, resets, and returns focus without saving', async () => {
+    const t = await fresh({ subdir: true }); const { page } = t;
+    await page.locator('.choice-quiet').click();
+    assert.equal(await page.locator('#quiet-dialog [data-close]').evaluate(node => getComputedStyle(node).outlineStyle), 'none');
+    const book = page.locator('#quiet-book'), poem = page.locator('#poem-dialog');
+    await page.waitForFunction(() => !document.getElementById('quiet-book').disabled);
+    await page.clock.pauseAt(new Date('2026-10-19T15:00:00+09:00'));
+    const storage = await page.evaluate(() => JSON.stringify({ ...localStorage }));
+    const isOpen = () => poem.evaluate(node => node.open);
+    const tap = async (n = 1) => { for (let i = 0; i < n; i++) await book.click(); };
+    const hidden = value => page.evaluate(value => {
+      Object.defineProperty(document, 'hidden', { configurable: true, value }); document.dispatchEvent(new Event('visibilitychange'));
+    }, value);
+    await tap(); assert.equal(await isOpen(), false);
+    assert.equal(await book.evaluate(node => node.classList.contains('is-touched')), true);
+    assert.deepEqual(await book.evaluate(node => { const style = getComputedStyle(node); return [style.outlineStyle, style.boxShadow, style.backgroundColor]; }), ['none', 'none', 'rgba(0, 0, 0, 0)']);
+    assert.equal(await page.locator('.book-glints').evaluate(node => getComputedStyle(node).opacity), '0.75');
+    await page.clock.runFor(1399); assert.equal(await book.evaluate(node => node.classList.contains('is-touched')), true);
+    await page.clock.runFor(1); assert.equal(await book.evaluate(node => node.classList.contains('is-touched')), false);
+    await page.clock.runFor(2001); await tap(); assert.equal(await isOpen(), false);
+    await hidden(true); await hidden(false); await tap(); assert.equal(await isOpen(), false);
+    await closeDialog(page, 'quiet-dialog'); await page.locator('.choice-quiet').click();
+    await tap(); assert.equal(await isOpen(), false);
+    await page.clock.runFor(2000); await tap();
+    assert.equal(await isOpen(), true);
+    assert.equal(await text(page, '#poem-title'), '《春声》');
+    assert.equal(await page.locator('#poem-dialog [data-close]').evaluate(node => getComputedStyle(node).outlineStyle), 'none');
+    assert.deepEqual(await page.locator('#poem-lines p').allTextContents(), ['春风一夜花初放', '季雨几日木又生', '前路纵遥终有至', '且将欢意赴新程']);
+    assert.equal(await poem.evaluate(node => getComputedStyle(node).animationName), 'none');
+    await poem.evaluate(node => node.addEventListener('close', () => { node.dataset.escapeClosed = 'true'; }, { once: true }));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.getElementById('poem-dialog').dataset.escapeClosed === 'true' && document.activeElement.id === 'quiet-book');
+    await book.press('Enter'); assert.equal(await isOpen(), false);
+    assert.equal(await book.evaluate(node => getComputedStyle(node).outlineStyle), 'dashed');
+    await book.press('Space'); assert.equal(await isOpen(), true);
+    await page.keyboard.press('Tab'); assert.equal(await page.locator('#poem-dialog [data-close]').evaluate(node => node === document.activeElement), true);
+    assert.equal(await page.locator('#poem-dialog [data-close]').evaluate(node => getComputedStyle(node).outlineColor), 'rgb(139, 157, 131)');
+    await page.locator('#poem-dialog [data-close]').dispatchEvent('pointerdown', { pointerType: 'touch' });
+    assert.equal(await page.locator('#poem-dialog [data-close]').evaluate(node => getComputedStyle(node).outlineStyle), 'none');
+    await closeDialog(page, 'poem-dialog');
+    await tap(2); assert.equal(await isOpen(), true);
+    await page.mouse.click(4, 4); await page.waitForFunction(() => !document.getElementById('poem-dialog').open);
+    assert.equal(await book.evaluate(node => node === document.activeElement), true);
+    assert.equal(await page.evaluate(() => JSON.stringify({ ...localStorage })), storage);
+    await t.close();
+  });
+
+  await check('touching the book and returning from the poem never leaves a rectangular focus or glow', async () => {
+    const t = await fresh({ context: { hasTouch: true, isMobile: true, reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.locator('.choice-quiet').tap();
+    const book = page.locator('#quiet-book');
+    await page.waitForFunction(() => !document.getElementById('quiet-book').disabled);
+    await book.tap(); await animationFrame(page, '.book-glints', 400);
+    assert.equal(await book.evaluate(node => getComputedStyle(node).outlineStyle), 'none');
+    assert.equal(await book.evaluate(node => getComputedStyle(node).boxShadow), 'none');
+    assert.ok(Number(await page.locator('.book-glints').evaluate(node => getComputedStyle(node).opacity)) > .8);
+    assert.equal(await page.locator('.book-spark').count(), 3);
+    assert.ok(await page.locator('.book-spark').evaluateAll(nodes => nodes.every(node => Number(getComputedStyle(node).opacity) > .8)));
+    await page.screenshot({ path: path.join(results, 'book-touch-feedback.png') });
+    await book.tap(); await page.locator('#poem-dialog[open]').waitFor();
+    await page.locator('#poem-dialog [data-close]').tap();
+    await page.waitForFunction(() => !document.getElementById('poem-dialog').open && document.activeElement.id === 'quiet-book');
+    assert.equal(await book.evaluate(node => getComputedStyle(node).outlineStyle), 'none');
+    assert.equal(await page.locator('.book-glints').evaluate(node => getComputedStyle(node).opacity), '0');
+    await page.screenshot({ path: path.join(results, 'book-touch-return.png') });
+    await t.close();
+  });
+
+  await check('poem image fits narrow, short and desktop views with a working overlaid close button', async () => {
+    const t = await fresh({ subdir: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.locator('.choice-quiet').click();
+    await page.waitForFunction(() => !document.getElementById('quiet-book').disabled);
+    await page.locator('.weather-button[data-weather="sunny"]').click(); await page.locator('#toggle-rain').click();
+    await page.locator('#quiet-book').click();
+    await animationFrame(page, '.book-glints', 400);
+    await page.screenshot({ path: path.join(results, 'spring-book-feedback.png') });
+    await page.locator('#quiet-book').click();
+    await page.locator('.poem-card').evaluate(node => node.decode());
+    assert.equal(await page.locator('.poem-card').evaluate(node => node.naturalWidth), 1091);
+    const corners = await page.locator('.poem-card').evaluate(node => {
+      const canvas = document.createElement('canvas'); canvas.width = node.naturalWidth; canvas.height = node.naturalHeight;
+      const ctx = canvas.getContext('2d'); ctx.drawImage(node, 0, 0);
+      return [[0, 0], [canvas.width - 1, 0], [0, canvas.height - 1], [canvas.width - 1, canvas.height - 1]].map(([x, y]) => ctx.getImageData(x, y, 1, 1).data[3]);
+    });
+    assert.deepEqual(corners, [0, 0, 0, 0]);
+    assert.equal(await page.locator('#poem-dialog').evaluate(node => getComputedStyle(node).animationName), 'poem-arrive');
+    for (const [width, height] of [[320, 640], [390, 844], [1280, 900], [320, 280]]) {
+      await page.setViewportSize({ width, height });
+      await animationFrame(page, '#poem-dialog', 300);
+      assert.equal(await page.locator('#poem-dialog .dialog-body').evaluate(node => node.scrollWidth > node.clientWidth), false);
+      const close = await page.locator('#poem-dialog [data-close]').boundingBox();
+      assert.ok(close.y >= 0 && close.y + close.height <= height);
+      const card = await page.locator('.poem-card').boundingBox();
+      assert.ok(card.x >= 0 && card.y >= 0 && card.y + card.height <= height + 1);
+      assert.ok(Math.abs(card.width / card.height - 1091 / 1442) < .001);
+      assert.ok(close.width >= 44 && close.height >= 44);
+      assert.ok(Math.abs((close.x + close.width / 2 - card.x) / card.width - .884) < .01);
+      await page.screenshot({ path: path.join(results, `spring-poem-${width}-${height}.png`) });
+    }
+    await closeDialog(page, 'poem-dialog');
+    assert.equal(await page.locator('#quiet-scene').getAttribute('data-weather'), 'sunny');
+    assert.equal(await page.locator('#toggle-rain').getAttribute('aria-pressed'), 'true');
+    for (const width of [320, 390, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.locator('#quiet-book').scrollIntoViewIfNeeded();
+      const bounds = await page.locator('#quiet-book').boundingBox();
+      assert.ok(bounds.width >= 44 && bounds.height >= 44);
+      await page.screenshot({ path: path.join(results, `spring-book-${width}.png`) });
+    }
+    await t.close();
   });
 
   await check('disabled storage, IME drafts, quiet preferences and future dates still work', async () => {

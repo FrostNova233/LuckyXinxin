@@ -62,7 +62,16 @@ async function fresh(options = {}) {
   return { page, context, issues, close: async () => { assert.deepEqual(issues, [], 'Runtime errors, external requests, or upload'); await context.close(); } };
 }
 const text = (page, selector = '#note-text') => page.locator(selector).innerText();
-async function closeNote(page) { await page.locator('#note-dialog .dialog-header [data-close]').click(); }
+async function saveDaily(page) { if (await page.locator('#save-note').isEnabled()) await page.locator('#save-note').click(); }
+async function closeNote(page) {
+  await page.locator('#note-dialog').evaluate(node => {
+    delete node.dataset.testClosed;
+    node.addEventListener('close', () => { node.dataset.testClosed = 'true'; }, { once: true });
+  });
+  await page.locator('#note-dialog .dialog-header [data-close]').click();
+  // dialog.close() queues its close event, which resets the reader and tones.
+  await page.waitForFunction(() => document.getElementById('note-dialog').dataset.testClosed === 'true');
+}
 // Wait for CSS animations to start before seeking; otherwise a pending start
 // can reset currentTime and produce a screenshot of the wrong frame.
 async function animationFrame(page, selector, time) {
@@ -202,7 +211,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     const t = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items: [luckyRecord()] }, [progressKey]: progress(14) } });
     const { page, context } = t;
     await page.evaluate(() => { Math.random = () => .99; });
-    await page.locator('#open-daily').click(); const daily = (await gifts(page)).items[1];
+    await page.locator('#open-daily').click(); const daily = (await readProgress(page)).daily; await countIs(page, 1);
     assert.equal(daily.special, undefined); assert.deepEqual(await readProgress(page), progress(15, daily));
     await closeNote(page); await page.evaluate(() => { Math.random = () => 0; });
     await page.locator('#open-daily').click(); assert.equal(await text(page), daily.text);
@@ -233,7 +242,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
       assert.equal((await readProgress(page)).misses, attempt === 21 ? 0 : attempt);
       await closeNote(page);
     }
-    await countIs(page, 11); await t.close();
+    await countIs(page, 0); await t.close();
   });
 
   await check('lucky: cancelled and background catches in either entry never advance probability progress', async () => {
@@ -305,18 +314,18 @@ async function next(page) { await page.locator('#next-note').click(); await page
     assert.equal(await drawWithRoll(a.page, .5), await drawWithRoll(b.page, .5)); await a.close(); await b.close();
   });
 
-  await check('lucky: daily outcomes remain fixed, auto-save once and respect old snapshots', async () => {
+  await check('lucky: daily outcomes remain fixed, save manually once and respect old snapshots', async () => {
     const t = await fresh({ lucky: true }); const { page } = t;
     await page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00'));
     await page.evaluate(() => { Math.random = () => 0; });
-    await page.locator('#open-daily').click(); await countIs(page, 1);
+    await page.locator('#open-daily').click(); await saveDaily(page); await countIs(page, 1);
     const daily = (await gifts(page)).items[0]; assert.equal(daily.special, 'super-lucky'); assert.equal(daily.source, 'daily'); assert.equal(daily.day, '2026-11-04');
     assert.deepEqual(await readProgress(page), progress(0, daily));
     assert.equal(await hasCelebration(page), true); await closeDialog(page, 'note-dialog');
     await page.locator('#open-daily').click(); assert.deepEqual((await gifts(page)).items, [daily]); assert.equal(await hasCelebration(page), false);
     await closeDialog(page, 'note-dialog'); await page.reload(); await page.locator('#open-daily').click(); assert.equal(await hasCelebration(page), false);
     await closeDialog(page, 'note-dialog'); await page.clock.setFixedTime(new Date('2026-11-05T12:00:00+09:00'));
-    await page.evaluate(() => { Math.random = () => .05; }); await page.locator('#open-daily').click();
+    await page.evaluate(() => { Math.random = () => .05; }); await page.locator('#open-daily').click(); await saveDaily(page);
     assert.equal((await gifts(page)).items[1].special, undefined); await t.close();
     const old = { ...luckyDaily, text: '以前存好的普通赠言' }; delete old.special;
     const snapshot = await fresh({ lucky: true, seed: { [giftKey]: { version: 2, items: [old] } } });
@@ -329,10 +338,10 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await page.clock.pauseAt(new Date('2026-11-04T12:00:00+09:00'));
     await page.evaluate(() => { Math.random = () => 0; }); await page.locator('#open-daily').click(); await page.clock.runFor(500);
     await closeDialog(page, 'note-dialog'); await page.clock.runFor(1500); await countIs(page, 0); assert.equal(await hasCelebration(page), false);
-    await page.locator('#open-daily').click(); await page.clock.runFor(1300); assert.equal((await gifts(page)).items[0].special, 'super-lucky'); await t.close();
+    await page.locator('#open-daily').click(); await page.clock.runFor(1300); await countIs(page, 0); await saveDaily(page); assert.equal((await gifts(page)).items[0].special, 'super-lucky'); await t.close();
     const failed = await fresh({ lucky: true, quota: 'gift-drops' }); await failed.page.clock.setFixedTime(new Date('2026-11-04T12:00:00+09:00'));
     await failed.page.evaluate(() => { Math.random = () => 0; });
-    await failed.page.locator('#open-daily').click(); const wording = await text(failed.page); assert.match(wording, /超级幸运/);
+    await failed.page.locator('#open-daily').click(); await saveDaily(failed.page); const wording = await text(failed.page); assert.match(wording, /超级幸运/);
     await countIs(failed.page, 0); assert.match(await text(failed.page, '#note-status'), /没能保存/);
     const daily = (await readProgress(failed.page)).daily;
     await closeNote(failed.page); await drawWithRoll(failed.page, .05);
@@ -341,7 +350,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await failed.page.evaluate(() => { Math.random = () => .99; }); await failed.page.locator('#open-daily').click();
     assert.equal(await text(failed.page), wording); assert.deepEqual(await readProgress(failed.page), progress(1, daily));
     assert.equal(await hasCelebration(failed.page), false);
-    await failed.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; }); await failed.page.locator('#retry-daily').click();
+    await failed.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; }); await failed.page.locator('#save-note').click();
     assert.deepEqual((await gifts(failed.page)).items, [daily]); assert.deepEqual(await readProgress(failed.page), progress(1, daily));
     assert.equal(await text(failed.page, '#note-status'), '超级幸运已放进瓶子里。✨'); await failed.close();
   });
@@ -352,7 +361,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await page.locator('#open-daily').click(); await page.clock.runFor(500);
     const other = await context.newPage(); await other.emulateMedia({ reducedMotion: 'reduce' });
     await other.clock.install({ time: new Date('2026-10-19T15:00:00+09:00') }); await other.goto(origin + '/');
-    await other.evaluate(() => { Math.random = () => .99; }); await other.locator('#open-daily').click();
+    await other.evaluate(() => { Math.random = () => .99; }); await other.locator('#open-daily').click(); await saveDaily(other);
     const daily = (await gifts(other)).items[0]; const state = await readProgress(other);
     await page.evaluate(() => { Math.random = () => 0; }); await page.clock.runFor(800);
     assert.equal(await text(page), daily.text); assert.equal(await specialShown(page), false);
@@ -458,23 +467,93 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await t.close();
   });
 
+  await check('daily note layout and arrow-free homepage entries retain touch and keyboard access', async () => {
+    const t = await fresh({ context: { hasTouch: true } }); const { page } = t;
+    assert.equal(await page.locator('#open-daily').getAttribute('aria-labelledby'), 'daily-label');
+    assert.equal(await page.locator('#open-daily').getAttribute('aria-describedby'), 'daily-hint');
+    assert.equal(await page.locator('#open-daily > svg,.choice-title svg').count(), 0);
+    // The existing footer entry is a house illustration, not an entry arrow.
+    assert.equal(await page.locator('footer .about-home[data-open="privacy-dialog"] svg').count(), 1);
+    assert.equal(await page.locator('footer .about-home').getAttribute('aria-label'), '关于这个小地方');
+    for (const width of [320, 390, 430, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      const bounds = await page.locator('#open-daily').evaluate(node => {
+        const button = node.getBoundingClientRect(), hint = document.getElementById('daily-hint').getBoundingClientRect(), label = document.getElementById('daily-label').getBoundingClientRect();
+        return { width: button.width, fits: label.left >= button.left && hint.right <= button.right && hint.bottom <= button.bottom, stacked: hint.top >= label.bottom, overflow: document.documentElement.scrollWidth > innerWidth };
+      });
+      assert.equal(bounds.overflow, false); assert.equal(bounds.fits, true); assert.equal(bounds.stacked, true);
+      assert.equal(Math.round(bounds.width), width <= 760 ? Math.round(await page.locator('.daily-entry').evaluate(node => node.getBoundingClientRect().width)) : 360);
+      await page.screenshot({ path: path.join(results, `daily-note-home-${width}.png`), fullPage: true });
+      const daily = await page.locator('#open-daily').boundingBox(), choices = await page.locator('.choices').boundingBox();
+      await page.screenshot({ path: path.join(results, `daily-note-entries-${width}.png`), clip: { x: daily.x, y: daily.y, width: choices.width, height: choices.y + choices.height - daily.y } });
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '接住今天这一滴', exact: true }).tap();
+    await countIs(page, 0); await closeNote(page);
+    const targets = [['#open-daily', 'note-dialog'], ['.choice-note', 'note-dialog'], ['.choice-vent', 'vent-dialog'], ['.choice-quiet', 'quiet-dialog'], ['footer [data-open="privacy-dialog"]', 'privacy-dialog']];
+    for (const [selector, dialog] of targets) {
+      await page.locator(selector).focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+      assert.notEqual(await page.locator(selector).evaluate(node => getComputedStyle(node).outlineStyle), 'none');
+      await page.keyboard.press('Enter');
+      assert.equal(await page.locator(`#${dialog}`).evaluate(node => node.open), true);
+      await page.keyboard.press('Escape');
+      assert.equal(await page.locator(selector).evaluate(node => node === document.activeElement), true);
+      await page.locator(selector).tap(); assert.equal(await page.locator(`#${dialog}`).evaluate(node => node.open), true);
+      await closeDialog(page, dialog);
+    }
+    await t.close();
+  });
+
+  await check('daily manual collection: unsaved ordinary and lucky snapshots survive reopening, reload and tabs', async () => {
+    for (const lucky of [false, true]) {
+      const t = await fresh({ lucky }); const { page, context } = t;
+      assert.equal(await page.locator('#open-daily').evaluate(node => getComputedStyle(node).borderRadius), '12px');
+      await page.evaluate(() => { Math.random = () => 0; });
+      await page.locator('#open-daily').click();
+      await countIs(page, 0); assert.equal(await gifts(page), null);
+      assert.equal(await text(page, '#note-status'), '');
+      assert.equal(await text(page, '#daily-hint'), '今天有一句话留给你，喜欢就存进瓶子。');
+      assert.equal(await page.locator('#go-random,#retry-daily').count(), 0);
+      const snapshot = (await readProgress(page)).daily, state = await readProgress(page);
+      assert.equal(await text(page), snapshot.text);
+      for (const reload of [false, true]) {
+        await closeNote(page); if (reload) await page.reload();
+        await page.evaluate(() => { Math.random = () => .99; });
+        await page.locator('#open-daily').click();
+        assert.equal(await text(page), snapshot.text);
+        assert.equal(await page.locator('#reader-mascot svg').getAttribute('data-expression'), snapshot.expression);
+        assert.deepEqual(await readProgress(page), state); await countIs(page, 0);
+      }
+      const other = await context.newPage(); await other.clock.install({ time: new Date('2026-10-19T14:00:00+09:00') }); await other.goto(origin + '/');
+      await other.locator('#open-daily').click(); assert.equal(await text(other), snapshot.text); await countIs(other, 0);
+      await page.locator('#save-note').focus(); await page.keyboard.press('Enter');
+      await other.waitForFunction(() => document.getElementById('save-note').disabled);
+      assert.equal(await text(page, '#save-note'), '已经在瓶子里');
+      assert.equal(await page.locator('#note-dialog').evaluate(node => node.open), true);
+      assert.equal(await page.locator('#note-dialog .dialog-header [data-close]').evaluate(node => node === document.activeElement), true);
+      await page.locator('#save-note').evaluate(node => { node.click(); node.click(); });
+      assert.deepEqual((await gifts(page)).items, [snapshot]); assert.deepEqual(await readProgress(page), state);
+      await t.close();
+    }
+  });
+
   await check('daily homepage wording follows successful saving, rereading, removal and local midnight', async () => {
     const t = await fresh(); const { page } = t;
     assert.equal(await text(page, '.choice-note .choice-title'), '随手接一滴');
     assert.equal(await text(page, '#daily-label'), '接住今天这一滴');
-    await page.locator('#open-daily').click(); const first = (await gifts(page)).items[0];
+    await page.locator('#open-daily').click(); await saveDaily(page); const first = (await gifts(page)).items[0];
     assert.equal(await text(page, '#daily-label'), '看看今天留下的这一滴');
     await closeNote(page); await page.reload();
     assert.equal(await text(page, '#daily-label'), '看看今天留下的这一滴');
     await page.locator('#open-daily').click(); assert.equal(await text(page), first.text); await countIs(page, 1); await closeNote(page);
     await cards(page, 'gift').first().click(); await page.locator('.bottled-drop').first().click(); await page.locator('#remove-note').click();
     assert.equal(await text(page, '#daily-label'), '接住今天这一滴');
-    await closeNote(page); await closeDialog(page, 'bottle-dialog'); await page.locator('#open-daily').click(); await closeNote(page);
+    await closeNote(page); await closeDialog(page, 'bottle-dialog'); await page.locator('#open-daily').click(); await saveDaily(page); await closeNote(page);
     await page.clock.pauseAt(new Date('2026-10-19T23:59:59+09:00'));
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await page.clock.runFor(1001);
     assert.equal(await text(page, '#daily-label'), '接住今天这一滴'); await countIs(page, 1);
-    await page.locator('#open-daily').click(); await countIs(page, 2);
+    await page.locator('#open-daily').click(); await saveDaily(page); await countIs(page, 2);
     assert.equal((await gifts(page)).items[1].day, '2026-10-20'); await t.close();
   });
 
@@ -484,17 +563,17 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await page.locator('#open-daily').click(); await page.clock.runFor(500); await closeNote(page); await page.clock.runFor(1400);
     assert.equal(await text(page, '#daily-label'), '接住今天这一滴'); await countIs(page, 0); await t.close();
     const failed = await fresh({ quota: 'gift-drops' });
-    await failed.page.locator('#open-daily').click();
+    await failed.page.locator('#open-daily').click(); await saveDaily(failed.page);
     assert.equal(await text(failed.page, '#daily-label'), '接住今天这一滴');
     await failed.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; });
-    await failed.page.locator('#retry-daily').click();
+    await failed.page.locator('#save-note').click();
     assert.equal(await text(failed.page, '#daily-label'), '看看今天留下的这一滴'); await failed.close();
   });
 
   await check('daily homepage label follows another tab and foreground date changes', async () => {
     const t = await fresh(); const { page, context } = t;
     const other = await context.newPage(); await other.goto(origin + '/');
-    await page.locator('#open-daily').click();
+    await page.locator('#open-daily').click(); await saveDaily(page);
     await other.waitForFunction(() => document.getElementById('daily-label').textContent === '看看今天留下的这一滴');
     await page.evaluate(key => localStorage.setItem(key, JSON.stringify({ version: 2, items: [] })), giftKey);
     await other.waitForFunction(() => document.getElementById('daily-label').textContent === '接住今天这一滴');
@@ -621,7 +700,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('restore rechecks a preview after another tab changes the collection', async () => {
     const t = await fresh(); const { page, context } = t; await openRestore(page); await inspectBackup(page, backupOf());
-    const other = await context.newPage(); await other.goto(origin + '/'); await other.locator('#open-daily').click();
+    const other = await context.newPage(); await other.goto(origin + '/'); await other.locator('#open-daily').click(); await saveDaily(other);
     await page.waitForFunction(() => document.getElementById('drop-count').textContent.includes('1滴'));
     await page.locator('#backup-confirm').click(); assert.match(await text(page, '#backup-status'), /本地记录刚刚有变化/); await countIs(page, 1);
     await page.locator('#backup-confirm').click(); await countIs(page, 5);
@@ -919,7 +998,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     assert.equal(await text(page, '#art-message'), ''); assert.equal(await page.locator('#art-effects > span').count(), 0);
     await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); }); assert.equal(await page.locator('#art-stage').getAttribute('data-effect'), null);
     await page.evaluate(() => { window.__deskNodes = { box: document.getElementById('desk-box'), star: document.querySelector('.hero-star'), mascot: document.querySelector('.hero-mascot'), bottle: document.getElementById('hero-bottle') }; });
-    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#open-daily').click(); await countIs(page, 1); await closeNote(page);
+    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.locator('#open-daily').click(); await saveDaily(page); await countIs(page, 1); await closeNote(page);
     assert.equal(await page.evaluate(() => Object.entries(window.__deskNodes).every(([key, node]) => node === (key === 'box' ? document.getElementById('desk-box') : key === 'bottle' ? document.getElementById('hero-bottle') : document.querySelector(key === 'star' ? '.hero-star' : '.hero-mascot')))), true);
     await page.locator('[data-art="box"]').click(); assert.equal(await text(page, '#art-message'), await page.evaluate(() => window.EMOTION_BOX_CONTENT.interactions.box)); await countIs(page, 1); await t.close();
   });
@@ -930,7 +1009,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     const t = await fresh({ seed: { [giftKey]: { version: 2, items: [item] }, [prefix + 'vents']: [privateItem] } }); const { page } = t;
     await countIs(page, 2);
     assert.equal(await page.locator('#touch-star').getAttribute('aria-label'), '让瓶子周围闪起小星星');
-    assert.equal(await page.locator('.shelf-note').innerText(), '每瓶10滴，慢慢收就好。');
+    assert.equal(await page.locator('.shelf-note').textContent(), '每瓶10滴，慢慢收就好。');
     assert.deepEqual(await page.locator('dialog h2').evaluateAll(nodes => nodes.filter(node => node.textContent.endsWith('。')).map(node => node.textContent)), []);
     await page.locator('.choice-note').click(); assert.equal(await text(page, '#note-dialog-title'), '随手接住一滴');
     assert.equal((await page.locator('#note-dialog').textContent()).includes('颗'), false);
@@ -945,15 +1024,15 @@ async function next(page) { await page.locator('#next-note').click(); await page
     const t = await fresh({ pool: [{ id: 'same', text: '今天也可以慢慢来。' }] }); const { page } = t;
     assert.equal(await page.evaluate(() => localStorage.length), 0);
     assert.equal(await page.locator('#open-collection').count(), 0);
-    await page.locator('#open-daily').click(); await countIs(page, 1);
+    await page.locator('#open-daily').click(); await saveDaily(page); await countIs(page, 1);
     const saved = (await gifts(page)).items[0]; assert.equal(saved.source, 'daily'); assert.equal(saved.id, 'daily:2026-10-19'); assert.equal(saved.day, '2026-10-19'); assert.ok(faces.includes(saved.expression));
-    assert.equal(await page.locator('#next-note').isVisible(), false); assert.equal(await page.locator('#save-note').isVisible(), false); assert.equal(await page.locator('#go-random').isVisible(), true);
+    assert.equal(await page.locator('#next-note').isVisible(), false); assert.equal(await page.locator('#save-note').isVisible(), true); assert.equal(await page.locator('#save-note').isDisabled(), true); assert.equal(await page.locator('#go-random,#retry-daily').count(), 0);
     await closeNote(page); await page.reload(); assert.match(await text(page, '#hero-title'), /馨馨，欢迎回来～/);
     await page.locator('#open-daily').click(); await countIs(page, 1); assert.deepEqual((await gifts(page)).items[0], saved);
     assert.equal(await page.locator('#reader-mascot svg').getAttribute('data-expression'), saved.expression);
-    await closeNote(page); await page.clock.setFixedTime(new Date('2026-10-20T00:01:00+09:00')); await page.locator('#open-daily').click(); await countIs(page, 2);
+    await closeNote(page); await page.clock.setFixedTime(new Date('2026-10-20T00:01:00+09:00')); await page.locator('#open-daily').click(); await saveDaily(page); await countIs(page, 2);
     assert.equal(await text(page), saved.text); assert.equal((await gifts(page)).items[1].id, 'daily:2026-10-20');
-    await page.locator('#go-random').click(); await page.locator('.pick-drop').first().click(); await page.locator('#save-note').click(); await countIs(page, 3);
+    await closeNote(page); await page.locator('.choice-note').click(); await page.locator('.pick-drop').first().click(); await page.locator('#save-note').click(); await countIs(page, 3);
     assert.equal((await gifts(page)).items[2].id, 'message:same'); await t.close();
   });
 
@@ -975,7 +1054,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     assert.equal(await page.locator('#catch-panel').isVisible(), true); await countIs(page, 0);
     await page.clock.runFor(1); assert.equal(await page.locator('#note-reader').isVisible(), true); await countIs(page, 0);
     const drawn = await text(page); await page.locator('#save-note').click(); await countIs(page, 1);
-    await closeNote(page); await page.locator('#open-daily').click(); await page.clock.runFor(1299); await countIs(page, 1); await page.clock.runFor(1); await countIs(page, 2);
+    await closeNote(page); await page.locator('#open-daily').click(); await page.clock.runFor(1299); await countIs(page, 1); await page.clock.runFor(1); await countIs(page, 1); await saveDaily(page); await countIs(page, 2);
     assert.ok(drawn.length); await t.close();
   });
 
@@ -1050,7 +1129,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await countIs(page, 5); assert.equal(await gifts(page), null);
     await cards(page, 'gift').first().click(); const expressions = await page.locator('.bottled-picture svg').evaluateAll(nodes => nodes.map(node => node.dataset.expression));
     await closeDialog(page, 'bottle-dialog'); await page.reload(); await cards(page, 'gift').first().click(); assert.deepEqual(await page.locator('.bottled-picture svg').evaluateAll(nodes => nodes.map(node => node.dataset.expression)), expressions);
-    await closeDialog(page, 'bottle-dialog'); await page.locator('#open-daily').click(); await countIs(page, 6);
+    await closeDialog(page, 'bottle-dialog'); await page.locator('#open-daily').click(); await saveDaily(page); await countIs(page, 6);
     assert.equal((await gifts(page)).items.length, 4); assert.deepEqual(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'favorites')), prefix), ids);
     await closeNote(page); await page.reload(); await countIs(page, 6);
     assert.deepEqual(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'vents')), prefix), vents); assert.deepEqual(await page.evaluate(p => JSON.parse(localStorage.getItem(p + 'drops')), prefix), days); await t.close();
@@ -1066,18 +1145,18 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('daily quota failure stays readable, shows retry and retries the exact same face', async () => {
     const t = await fresh({ quota: 'gift-drops' }); const { page } = t;
-    await page.locator('#open-daily').click(); await countIs(page, 0); assert.match(await text(page, '#note-status'), /没能保存/); assert.equal(await page.locator('#retry-daily').isVisible(), true);
+    await page.locator('#open-daily').click(); await saveDaily(page); await countIs(page, 0); assert.match(await text(page, '#note-status'), /没能保存/); assert.equal(await page.locator('#save-note').isVisible(), true);
     const portrait = await page.locator('#reader-mascot svg').getAttribute('data-expression'), snapshot = await text(page);
     await page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; });
-    await page.locator('#retry-daily').click(); await countIs(page, 1); assert.equal((await gifts(page)).items[0].expression, portrait); assert.equal((await gifts(page)).items[0].text, snapshot);
-    assert.equal(await page.locator('#retry-daily').isVisible(), false); await t.close();
+    await page.locator('#save-note').click(); await countIs(page, 1); assert.equal((await gifts(page)).items[0].expression, portrait); assert.equal((await gifts(page)).items[0].text, snapshot);
+    assert.equal(await page.locator('#save-note').isDisabled(), true); await t.close();
   });
 
   for (const damaged of ['new-gifts', 'old-favorites']) {
     await check(`damaged ${damaged} is preserved and cannot be overwritten by daily collection`, async () => {
       const key = damaged === 'new-gifts' ? giftKey : prefix + 'favorites';
       const t = await fresh({ seed: { [key]: '{bad-json' } }); const { page } = t;
-      await page.locator('#open-daily').click(); assert.match(await text(page, '#note-status'), /无法读取/); await countIs(page, 0);
+      await page.locator('#open-daily').click(); await saveDaily(page); assert.match(await text(page, '#note-status'), /无法读取/); await countIs(page, 0);
       assert.equal(await page.evaluate(key => localStorage.getItem(key), key), '{bad-json');
       await closeNote(page); await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('独立的心事仍能存'); await page.locator('#save-vent').check(); await page.locator('#throw-vent').click(); await countIs(page, 1); await t.close();
     });
@@ -1085,12 +1164,12 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('invalid expression metadata does not overwrite an existing collection', async () => {
     const broken = { version: 2, items: [{ ...records(1)[0], expression: '<svg onload=alert(1)>' }] };
-    const t = await fresh({ seed: { [giftKey]: broken } }); await t.page.locator('#open-daily').click(); assert.match(await text(t.page, '#note-status'), /无法读取/); assert.deepEqual(await gifts(t.page), broken); await t.close();
+    const t = await fresh({ seed: { [giftKey]: broken } }); await t.page.locator('#open-daily').click(); await saveDaily(t.page); assert.match(await text(t.page, '#note-status'), /无法读取/); assert.deepEqual(await gifts(t.page), broken); await t.close();
   });
 
   await check('separate old damaged data does not block new gifts; private quota failures retain input', async () => {
     for (const seedKey of ['vents', 'drops', 'visited', 'weather']) {
-      const t = await fresh({ seed: { [prefix + seedKey]: '{bad' } }); await t.page.locator('#open-daily').click(); await countIs(t.page, 1); assert.equal(await t.page.evaluate(key => localStorage.getItem(key), prefix + seedKey), '{bad'); await t.close();
+      const t = await fresh({ seed: { [prefix + seedKey]: '{bad' } }); await t.page.locator('#open-daily').click(); await saveDaily(t.page); await countIs(t.page, 1); assert.equal(await t.page.evaluate(key => localStorage.getItem(key), prefix + seedKey), '{bad'); await t.close();
     }
     const t = await fresh({ quota: 'vents' }); const { page } = t;
     await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('保存失败不能丢'); await page.locator('#save-vent').check(); await page.locator('#throw-vent').click();
@@ -1183,7 +1262,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
     const t = await fresh({ pool: fixturePool.slice(0, 16), random: true }); const { page } = t;
     const round = [await openRandom(page)];
     for (let i = 1; i < 16; i++) {
-      if (i === 4) { await page.locator('#save-note').click(); await closeNote(page); await page.locator('#open-daily').click(); await page.locator('#go-random').click(); await page.locator('.pick-drop').first().click(); round.push(await text(page)); }
+      if (i === 4) { await page.locator('#save-note').click(); await closeNote(page); await page.locator('#open-daily').click(); await closeNote(page); await page.locator('.choice-note').click(); await page.locator('.pick-drop').first().click(); round.push(await text(page)); }
       else round.push(await next(page));
     }
     assert.equal(new Set(round).size, 16);
@@ -1218,8 +1297,8 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('cross-tab collection preserves faces, unique daily IDs and removal tombstones', async () => {
     const t = await fresh(); const { page, context } = t; const other = await context.newPage(); await other.goto(origin + '/');
-    await page.locator('#open-daily').click(); await other.locator('#open-daily').click(); await countIs(other, 1); assert.equal((await gifts(page)).items.length, 1);
-    await page.locator('#go-random').click(); const expression = await page.locator('.pick-drop').first().getAttribute('data-expression'); await page.locator('.pick-drop').first().click(); await page.locator('#save-note').click();
+    await page.locator('#open-daily').click(); await saveDaily(page); await other.locator('#open-daily').click(); await countIs(other, 1); assert.equal((await gifts(page)).items.length, 1);
+    await closeNote(page); await page.locator('.choice-note').click(); const expression = await page.locator('.pick-drop').first().getAttribute('data-expression'); await page.locator('.pick-drop').first().click(); await page.locator('#save-note').click();
     await other.waitForFunction(() => document.getElementById('drop-count').textContent.includes('2滴'));
     assert.equal((await gifts(other)).items[1].expression, expression);
     await page.locator('#remove-note').click(); await other.waitForFunction(() => document.getElementById('drop-count').textContent.includes('1滴')); await countIs(other, 1); await t.close();
@@ -1292,6 +1371,52 @@ async function next(page) { await page.locator('#next-note').click(); await page
     await closeDialog(page, 'poem-dialog'); assert.equal(await motion(), 'running');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await restore(false); assert.equal(await page.locator('.tea-steam path').first().evaluate(node => node.getAnimations().length), 0);
+    await t.close();
+  });
+
+  await check('quiet sleep: continuous letters follow pause, visibility, nested poem and reduced motion', async () => {
+    const t = await fresh({ context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.locator('.choice-quiet').click(); await page.locator('#quiet-scene.has-reading-art').waitFor();
+    const motion = () => page.locator('.quiet-zzz text').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).animationName));
+    const active = ['quiet-sleep-letter', 'quiet-sleep-letter', 'quiet-sleep-letter'], stopped = ['none', 'none', 'none'];
+    assert.deepEqual(await motion(), active);
+    assert.deepEqual(await page.locator('.quiet-zzz text').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).animationIterationCount)), ['infinite', 'infinite', 'infinite']);
+    assert.deepEqual(await page.locator('.quiet-zzz text').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).animationDelay)), ['0s', '-1.6s', '-3.2s']);
+    await page.clock.runFor(18000); assert.deepEqual(await motion(), active);
+    await page.locator('#toggle-rain').click(); assert.deepEqual(await motion(), stopped);
+    await page.locator('#toggle-rain').click(); assert.deepEqual(await motion(), active);
+    for (const event of ['visibilitychange', 'pagehide', 'poem', 'close']) {
+      if (event === 'visibilitychange') await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+      if (event === 'pagehide') await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      if (event === 'poem') { await page.locator('#quiet-book').evaluate(node => { node.click(); node.click(); }); await page.locator('#poem-dialog[open]').waitFor(); }
+      if (event === 'close') await closeDialog(page, 'quiet-dialog');
+      assert.deepEqual(await motion(), stopped, event);
+      if (event === 'visibilitychange') await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
+      if (event === 'pagehide') await page.evaluate(() => { window.dispatchEvent(new Event('pageshow')); window.dispatchEvent(new Event('focus')); });
+      if (event === 'poem') await closeDialog(page, 'poem-dialog');
+      if (event === 'close') await page.locator('.choice-quiet').click();
+      assert.deepEqual(await motion(), active);
+    }
+    await page.locator('#toggle-rain').click(); await page.evaluate(() => { window.dispatchEvent(new Event('pagehide')); window.dispatchEvent(new Event('pageshow')); });
+    assert.deepEqual(await motion(), stopped); await page.locator('#toggle-rain').click();
+    await page.emulateMedia({ reducedMotion: 'reduce' }); await page.waitForFunction(() => document.getElementById('quiet-scene').classList.contains('is-still')); assert.deepEqual(await motion(), stopped);
+    assert.deepEqual(await page.locator('.quiet-zzz text').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).opacity)), ['0', '0', '0']);
+    await page.emulateMedia({ reducedMotion: 'no-preference' }); await page.waitForFunction(() => !document.getElementById('quiet-scene').classList.contains('is-still')); assert.deepEqual(await motion(), active);
+    await t.close();
+  });
+
+  await check('quiet sleep: cat and toys remain decorations while letters fit all requested widths', async () => {
+    const t = await fresh({ subdir: true, context: { reducedMotion: 'no-preference' } }); const { page } = t;
+    await page.locator('.choice-quiet').click(); await page.locator('#quiet-scene.has-reading-art').waitFor();
+    assert.deepEqual(await page.locator('#quiet-scene button').evaluateAll(nodes => nodes.map(node => node.id)), ['quiet-book']);
+    assert.equal(await page.locator('#quiet-scene filter,#quiet-cat,#quiet-toys').count(), 0);
+    assert.equal(await page.locator('#quiet-foreground,.quiet-plush').evaluateAll(nodes => nodes.some(node => getComputedStyle(node).filter !== 'none' || node.getAnimations().length)), false);
+    for (const width of [320, 390, 430, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await animationFrame(page, '.quiet-zzz', 1800);
+      await page.screenshot({ path: path.join(results, 'quiet-zzz-only-' + width + '.png') });
+    }
     await t.close();
   });
 
@@ -1465,7 +1590,7 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('disabled storage, IME drafts, quiet preferences and future dates still work', async () => {
     const t = await fresh({ blocked: true }); const { page } = t;
-    await page.locator('#open-daily').click(); assert.ok((await text(page)).length); await countIs(page, 0); assert.match(await text(page, '#note-status'), /无法读取/); await closeNote(page);
+    await page.locator('#open-daily').click(); await saveDaily(page); assert.ok((await text(page)).length); await countIs(page, 0); assert.match(await text(page, '#note-status'), /无法读取/); await closeNote(page);
     await page.locator('.choice-vent').click(); await page.locator('#vent-text').fill('带走但不留'); await page.locator('#throw-vent').click(); assert.equal(await page.locator('#vent-result').isVisible(), true); await closeDialog(page, 'vent-dialog'); await page.locator('.choice-quiet').click(); await page.locator('.weather-button[data-weather="sunny"]').click(); assert.equal(await page.locator('#quiet-scene').getAttribute('data-weather'), 'sunny'); await t.close();
     const u = await fresh({ seed: { [prefix + 'weather']: JSON.stringify('sunny'), [prefix + 'rain-paused']: true }, letters: [{ id: 'future', title: '留到下一刻', text: '后来的一点幸运', unlockAt: '2026-10-19T06:00:00Z' }] });
     await u.page.locator('.choice-vent').click(); await u.page.locator('#vent-text').dispatchEvent('compositionstart'); await u.page.locator('#vent-text').fill('组合输入的心事'); await u.page.locator('#vent-text').dispatchEvent('compositionend', { data: '心事' }); await closeDialog(u.page, 'vent-dialog'); await u.page.locator('.choice-vent').click(); assert.equal(await u.page.locator('#vent-text').inputValue(), '组合输入的心事'); await closeDialog(u.page, 'vent-dialog');
@@ -1475,12 +1600,12 @@ async function next(page) { await page.locator('#next-note').click(); await page
 
   await check('daily IDs follow the device local date rather than UTC', async () => {
     for (const timezoneId of ['Asia/Tokyo', 'America/Los_Angeles']) {
-      const t = await fresh({ context: { timezoneId } }); await t.page.clock.setFixedTime(new Date('2026-10-19T00:30:00+09:00')); await t.page.locator('#open-daily').click(); assert.equal((await gifts(t.page)).items[0].day, timezoneId === 'Asia/Tokyo' ? '2026-10-19' : '2026-10-18'); await t.close();
+      const t = await fresh({ context: { timezoneId } }); await t.page.clock.setFixedTime(new Date('2026-10-19T00:30:00+09:00')); await t.page.locator('#open-daily').click(); await saveDaily(t.page); assert.equal((await gifts(t.page)).items[0].day, timezoneId === 'Asia/Tokyo' ? '2026-10-19' : '2026-10-18'); await t.close();
     }
   });
 
   await check('empty content pools never create phantom daily records', async () => {
-    const t = await fresh({ pool: [] }); await t.page.locator('#open-daily').click(); await countIs(t.page, 0); assert.equal(await gifts(t.page), null); assert.equal(await t.page.locator('#retry-daily').isVisible(), false); await t.close();
+    const t = await fresh({ pool: [] }); await t.page.locator('#open-daily').click(); await countIs(t.page, 0); assert.equal(await gifts(t.page), null); assert.equal(await t.page.locator('#save-note').isDisabled(), true); await t.close();
   });
 
   await check('all viewport widths and large text reflow, with no extra runtime requests', async () => {
@@ -1497,14 +1622,107 @@ async function next(page) { await page.locator('#next-note').click(); await page
     const close = await page.locator('#note-dialog .dialog-header [data-close]').boundingBox(); assert.ok(close.y >= 0 && close.y + close.height <= 640); await t.close();
   });
 
-  await check('soft primary and secondary buttons keep readable contrast', async () => {
+  const feedbackTone = async (page, selector, tone) => {
+    assert.equal(await page.locator(selector).getAttribute('data-tone'), tone);
+    const colors = { info: 'rgb(95, 103, 91)', success: 'rgb(79, 99, 71)', error: 'rgb(136, 84, 66)' };
+    assert.equal(await page.locator(selector).evaluate(node => getComputedStyle(node).color), colors[tone || 'info']);
+    if (tone) {
+      const ratio = await page.locator(selector).evaluate(node => {
+        const rgb = value => value.match(/[\d.]+/g).slice(0, 3).map(Number);
+        const light = value => value.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((n, v, i) => n + v * [.2126, .7152, .0722][i], 0);
+        const a = light(rgb(getComputedStyle(node).color)), b = light(rgb(getComputedStyle(node.closest('dialog') || document.body).backgroundColor));
+        return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+      });
+      assert.ok(ratio >= 4.5, `${selector} contrast ${ratio}`);
+    }
+  };
+
+  await check('typography: shared hierarchy survives every breakpoint, long writing and enlarged text', async () => {
+    const privateText = ('今天想把事情慢慢放下，给自己留一点时间。\n').repeat(25);
+    const t = await fresh({ pool: [{ id: 'long', text: ('今天可以慢慢来，把想做的事情一件一件放好。').repeat(24) }], seed: { [prefix + 'vents']: [{ id: 'type-private', text: privateText, at: '2026-10-19T00:00:00Z', expression: 'smile' }] }, letters: [{ id: 'type-letter', title: '后来的一点幸运', text: '有些话，留到合适的时候再遇见。', unlockAt: '2026-01-01T00:00:00Z' }] });
+    const { page } = t;
+    const style = (selector, property) => page.locator(selector).first().evaluate((node, property) => getComputedStyle(node)[property], property);
+    const fits = async selector => assert.equal(await page.locator(selector).evaluate(node => node.scrollWidth <= node.clientWidth), true, `${selector} horizontal overflow`);
+    for (const width of [320, 390, 430, 760, 768, 900, 1280]) {
+      await page.setViewportSize({ width, height: 844 }); const mobile = width <= 760;
+      assert.equal(await style('.choice-title', 'fontSize'), mobile ? '20px' : '22px'); assert.equal(await style('.choice-title', 'fontWeight'), '500');
+      assert.equal(await style('.choice-title', 'fontFamily'), await style('body', 'fontFamily'));
+      assert.equal(await style('#daily-label', 'fontFamily'), await style('body', 'fontFamily'));
+      assert.equal(await style('#daily-label', 'fontSize'), '18px'); assert.equal(await style('#daily-hint', 'fontSize'), '14px');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      if ([390, 1280].includes(width)) await page.screenshot({ path: path.join(results, `type-refined-home-${width}.png`), fullPage: true });
+      await openRandom(page);
+      assert.equal(await style('#note-dialog-title', 'fontSize'), mobile ? '22px' : '24px');
+      assert.equal(await style('#note-dialog-title', 'fontFamily'), await style('body', 'fontFamily'));
+      assert.equal((await style('#note-text', 'fontFamily')).includes('SimSun'), true);
+      assert.equal(await style('#note-text', 'fontSize'), mobile ? '20px' : '22px');
+      assert.equal(await style('#save-note', 'fontSize'), '15px'); assert.equal(await style('#save-note', 'fontWeight'), '500'); assert.equal(await style('#next-note', 'fontWeight'), '400');
+      await fits('#note-dialog .dialog-body'); await closeNote(page);
+      await page.locator('.choice-quiet').click(); assert.equal(await style('.quiet-copy', 'fontSize'), '16px'); assert.equal(await style('.weather-button[aria-pressed="true"]', 'fontWeight'), '500');
+      await closeDialog(page, 'quiet-dialog');
+      await page.locator('#home-shelves .bottle-card[data-group="self"]').first().click(); await page.locator('.bottled-drop').first().click();
+      assert.equal(await style('#personal-text', 'fontSize'), '16px'); assert.equal((await style('#personal-text', 'fontFamily')).includes('SimSun'), false);
+      assert.equal(await page.locator('#personal-text').textContent(), privateText); assert.equal(await style('#personal-date', 'fontSize'), '13px'); await fits('#personal-dialog .dialog-body');
+      if ([390, 1280].includes(width)) await page.locator('#personal-dialog').screenshot({ path: path.join(results, `type-refined-personal-${width}.png`) });
+      await closeDialog(page, 'personal-dialog'); await closeDialog(page, 'bottle-dialog');
+      await page.locator('#open-future').click(); assert.equal(await style('#future-list h3', 'fontSize'), '18px'); assert.equal(await style('#future-list h3', 'fontWeight'), '500'); await closeDialog(page, 'future-dialog');
+      await page.locator('footer [data-open="privacy-dialog"]').click(); assert.equal(await style('.privacy-copy p', 'fontSize'), '15px'); assert.equal(await style('.privacy-copy p', 'color'), 'rgb(52, 61, 52)');
+      if ([390, 1280].includes(width)) await page.locator('#privacy-dialog').screenshot({ path: path.join(results, `type-refined-privacy-${width}.png`) });
+      await closeDialog(page, 'privacy-dialog');
+    }
+    await page.setViewportSize({ width: 320, height: 640 }); await page.addStyleTag({ content: 'button,p,span,label{font-size:28px!important}' });
+    await page.locator('#home-shelves .bottle-card[data-group="self"]').first().click(); await page.locator('.bottled-drop').first().click(); await fits('#personal-dialog .dialog-body');
+    const close = await page.locator('#personal-dialog .close').boundingBox(); assert.ok(close.y >= 0 && close.y + close.height <= 640); await t.close();
+  });
+
+  await check('feedback: saving, removing and reopening never retain a previous error or success tone', async () => {
+    const t = await fresh({ quota: 'gift-drops' }); const { page } = t;
+    await openRandom(page); await page.locator('#save-note').click(); await feedbackTone(page, '#note-status', 'error');
+    await page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; }); await page.locator('#save-note').click(); await feedbackTone(page, '#note-status', 'success');
+    await page.evaluate(() => { const set = Storage.prototype.setItem; window.__feedbackSet = set; Storage.prototype.setItem = function (key, value) { if (key.endsWith('gift-drops')) throw new DOMException('Full', 'QuotaExceededError'); return set.call(this, key, value); }; });
+    await page.locator('#remove-note').click(); await feedbackTone(page, '#note-status', 'error'); await countIs(page, 1);
+    await page.locator('#note-dialog').screenshot({ path: path.join(results, 'type-refined-save-error.png') });
+    await page.evaluate(() => { Storage.prototype.setItem = window.__feedbackSet; }); await page.locator('#remove-note').click(); await feedbackTone(page, '#note-status', 'success'); await countIs(page, 0);
+    await closeNote(page); await feedbackTone(page, '#note-status', null); await page.locator('.choice-note').click(); await feedbackTone(page, '#note-status', null);
+    assert.equal(await page.locator('#note-status').getAttribute('role'), 'status'); await t.close();
+  });
+
+  await check('feedback: backup validation, merging and clipboard fallbacks use explicit resettable tones', async () => {
+    const t = await fresh({ beforeGoto: page => page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { if (window.__copyFail) throw new Error('Denied'); } } })) }); const { page } = t;
+    await openRestore(page); await inspectBackup(page, '{bad'); await feedbackTone(page, '#backup-status', 'error');
+    await inspectBackup(page, backupOf()); await feedbackTone(page, '#backup-status', 'info');
+    await page.locator('#backup-confirm').click(); await feedbackTone(page, '#backup-status', 'success');
+    await page.locator('#backup-input').fill('{bad'); await feedbackTone(page, '#backup-status', null); await page.locator('#backup-check').click(); await feedbackTone(page, '#backup-status', 'error');
+    await page.locator('#backup-dialog').screenshot({ path: path.join(results, 'type-refined-backup-error.png') });
+    await closeDialog(page, 'backup-dialog'); await feedbackTone(page, '#backup-status', null);
+    await page.locator('#backup-copy').click(); await page.waitForFunction(() => document.getElementById('backup-status').dataset.tone === 'success'); await feedbackTone(page, '#backup-status', 'success');
+    await closeDialog(page, 'backup-dialog'); await page.evaluate(() => { window.__copyFail = true; }); await page.locator('#backup-copy').click();
+    await page.waitForFunction(() => document.getElementById('backup-status').dataset.tone === 'error'); await feedbackTone(page, '#backup-status', 'error'); assert.equal(await page.locator('#backup-output-panel').isVisible(), true);
+    await closeDialog(page, 'backup-dialog'); await page.evaluate(() => { window.__copyFail = false; }); await page.locator('#backup-copy').click();
+    await page.waitForFunction(() => document.getElementById('backup-status').dataset.tone === 'success'); await feedbackTone(page, '#backup-status', 'success'); await t.close();
+  });
+
+  await check('feedback: writing, collection read failures and weather preference recovery keep their own tones', async () => {
+    const t = await fresh({ quota: 'vents' }); const { page } = t;
+    await page.locator('.choice-vent').click(); await page.locator('#throw-vent').click(); await feedbackTone(page, '#vent-status', 'info');
+    await page.locator('#vent-text').fill('保留这段原文\n下一行也留下。'); await page.locator('#save-vent').check(); await page.locator('#throw-vent').click(); await feedbackTone(page, '#vent-status', 'error');
+    await closeDialog(page, 'vent-dialog'); await page.locator('.choice-vent').click(); await feedbackTone(page, '#vent-status', null);
+    assert.equal(await page.locator('#vent-text').inputValue(), '保留这段原文\n下一行也留下。');
+    await page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; }); await page.locator('#save-vent').check(); await page.locator('#throw-vent').click(); await feedbackTone(page, '#vent-status', null); await countIs(page, 1); await t.close();
+    const weather = await fresh({ quota: 'weather' }); await weather.page.locator('.choice-quiet').click(); await weather.page.locator('[data-weather="sunny"]').click(); await feedbackTone(weather.page, '#quiet-storage-status', 'error');
+    await weather.page.evaluate(() => { Storage.prototype.setItem = window.__testOriginalSet; }); await weather.page.locator('[data-weather="rain"]').click(); await feedbackTone(weather.page, '#quiet-storage-status', null); await weather.close();
+    const broken = await fresh({ seed: { [giftKey]: '{bad' } }); await feedbackTone(broken.page, '#home-collection-status', 'error');
+    await broken.page.locator('.hotspot-bottle').click(); await feedbackTone(broken.page, '#collection-status', 'error'); await broken.close();
+  });
+
+  await check('daily cream note and soft reader buttons keep readable contrast', async () => {
     const t = await fresh(); const { page } = t; await openRandom(page);
-    const colors = await page.locator('#save-note,#next-note,#open-daily').evaluateAll(nodes => {
+    const colors = await page.locator('#save-note,#next-note,#open-daily,#daily-hint').evaluateAll(nodes => {
       const rgb = css => css.match(/[\d.]+/g).slice(0, 3).map(Number);
       const light = c => c.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((n, v, i) => n + v * [.2126, .7152, .0722][i], 0);
-      return nodes.map(node => { const s = getComputedStyle(node), a = light(rgb(s.color)), b = light(rgb(s.backgroundColor)); return { background: s.backgroundColor, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) }; });
+      return nodes.map(node => { const s = getComputedStyle(node), a = light(rgb(s.color)), background = node.id === 'daily-hint' ? getComputedStyle(node.closest('button')).backgroundColor : s.backgroundColor, b = light(rgb(background)); return { id: node.id, background, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) }; });
     });
-    for (const value of colors) { assert.ok(value.ratio >= 4.5); assert.notEqual(value.background, 'rgb(79, 102, 83)'); }
+    for (const value of colors) { assert.ok(value.ratio >= 4.5); if (['open-daily', 'daily-hint'].includes(value.id)) assert.equal(value.background, 'rgb(244, 239, 227)'); else assert.notEqual(value.background, 'rgb(79, 102, 83)'); }
     await page.screenshot({ path: path.join(results, 'expression-reader.png') }); await t.close();
   });
   console.log(`\n${passed} browser checks passed. Screenshots: ${results}`);

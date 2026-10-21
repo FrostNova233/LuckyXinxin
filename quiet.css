@@ -1,6 +1,6 @@
 .quiet-scene{width:min(100%,350px);margin:0 auto 10px;line-height:0;--sky:#dbe5de;--hill:#b8c7b5}
 .park-grass{opacity:.8}.quiet-scene[data-weather="sunny"] .park-grass{opacity:1}
-.quiet-content .weather-button[aria-pressed="true"]{background:#dfe9ed;border-color:#8ba5b2;color:#405e6c;box-shadow:inset 0 -2px 0 #8ba5b2}
+.quiet-content .weather-button[aria-pressed="true"]{font-weight:var(--weight-medium);background:#dfe9ed;border-color:#8ba5b2;color:#405e6c;box-shadow:inset 0 -2px 0 #8ba5b2}
 .quiet-scene svg{width:100%;height:auto;overflow:visible}
 .weather-sky{fill:var(--sky)}.weather-hill{fill:var(--hill)}
 .weather-sky,.weather-hill,.weather-sun,.weather-cloud,.weather-rain,.weather-light{transition:opacity 1s ease,fill 1s ease}
@@ -20,20 +20,20 @@
 .quiet-scene.is-still .weather-cloud,.quiet-scene.is-still .weather-rain line,.quiet-scene.is-still .tea-steam path,.quiet-scene.is-inactive .weather-cloud,.quiet-scene.is-inactive .weather-rain line,.quiet-scene.is-inactive .tea-steam path{animation-play-state:paused}
 .quiet-scene.is-still .weather-rain{visibility:hidden}
 .weather-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:min(100%,300px);margin:23px auto 2px}
-.weather-button{min-width:0;min-height:44px;padding:8px 10px;border-radius:6px;background:transparent;border:1px solid #c5cbbb;color:#57654e;font-size:14px;transition:background-color .2s}
-.weather-button[aria-pressed="true"]{background:#e2e7d7;border-color:#87977c;color:#394b34;box-shadow:inset 0 -2px 0 #87977c}
-.quiet-motion{font-size:14px;min-height:44px;margin-top:5px;color:#65715b}
+.weather-button{min-width:0;min-height:44px;padding:8px 10px;border-radius:6px;background:transparent;border:1px solid #c5cbbb;color:#57654e;font-size:var(--font-ui);transition:background-color .2s}
+.weather-button[aria-pressed="true"]{font-weight:var(--weight-medium);background:#e2e7d7;border-color:#87977c;color:#394b34;box-shadow:inset 0 -2px 0 #87977c}
+.quiet-motion{font-size:var(--font-ui);min-height:44px;margin-top:5px;color:#65715b}
 .quiet-motion:disabled{opacity:1;cursor:default;color:var(--muted)}
-.quiet-storage-status{font-size:14px;color:var(--muted);line-height:1.7;margin:0}
+.quiet-storage-status{font-size:var(--font-caption);color:var(--muted);line-height:1.7;margin:0}
 .quiet-storage-status:empty{display:none}
-.quiet-content .quiet-copy{font-size:16px;line-height:1.9;margin:8px 0 0}
+.quiet-content .quiet-copy{font-size:var(--font-body);line-height:1.9;margin:8px 0 0}
 .quiet-content #quiet-note{margin:0 0 4px}
 @keyframes quiet-cloud-drift{from{transform:translateX(-5px)}to{transform:translateX(9px)}}
 @keyframes quiet-rain-fall{from{transform:translate(0,-160px)}to{transform:translate(-32px,120px)}}
-@media(max-width:760px){.quiet-content .quiet-copy{font-size:14px}.weather-controls{margin-top:18px}.weather-button{min-width:0}.quiet-scene{margin-top:5px}}
+@media(max-width:760px){.weather-controls{margin-top:18px}.weather-button{min-width:0}.quiet-scene{margin-top:5px}}
 @media(prefers-reduced-motion:reduce){.quiet-scene *{animation:none!important;transition:none!important}.quiet-scene .weather-rain{visibility:hidden}.weather-button{transition:none}}
 
-/* The girl stays still; only the tea and the outdoor view move softly. */
+/* The girl and objects stay still; tea, sleep letters and weather move softly. */
 .quiet-scene{position:relative}
 .quiet-scene>svg{display:block}
 /* Center of the book in the 280 × 330 viewBox, including the foreground's placement. */
@@ -69,6 +69,11 @@
 @media(prefers-reduced-motion:reduce){.tea-steam path{animation:none!important;opacity:.35;transform:none}}
 
 .quiet-scene:has(.quiet-book.is-loading) .book-glints,.quiet-scene:has(.quiet-book.is-loading) .book-halo,.quiet-scene:has(.quiet-book.is-loading) .book-spark{animation-iteration-count:infinite}
+.quiet-zzz text{opacity:0}
+.has-reading-art:not(.is-still):not(.is-inactive) .quiet-zzz text{animation:quiet-sleep-letter 4.8s ease-in-out infinite}
+.has-reading-art:not(.is-still):not(.is-inactive) .quiet-zzz text:nth-child(2){animation-delay:-1.6s}
+.has-reading-art:not(.is-still):not(.is-inactive) .quiet-zzz text:nth-child(3){animation-delay:-3.2s}
+@keyframes quiet-sleep-letter{0%{opacity:0;transform:translate(0,2px)}20%,55%{opacity:.6}100%{opacity:0;transform:translate(-8px,-21px)}}
 .poem-paper.has-poem-fallback{background:#f8f1e2;border:1px solid #d9cfb9;border-radius:6px}
 .poem-paper.has-poem-fallback .poem-body{padding:54px 20px 38px;text-align:center;font-family:var(--serif);color:#4f6052}
 .has-poem-fallback #poem-title{font-size:27px;margin:0 0 24px}

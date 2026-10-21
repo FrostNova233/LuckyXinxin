@@ -58,7 +58,7 @@
  .desk-table .hero-copy{display:contents}.desk-table .hero-copy>.eyebrow{grid-area:eyebrow;display:flex;margin:0 0 10px;letter-spacing:0;gap:4px}
  .desk-table #hero-title{grid-area:welcome;align-self:center;font-size:clamp(26px,6.4vw,30px);margin:0;line-height:1.45;letter-spacing:0}
  .desk-table .intro{grid-area:intro;font-size:16px;line-height:1.85;margin:12px 0 0}.desk-table .daily-entry{margin-top:17px}
- .desk-table .daily-button{width:100%;gap:12px}
+ .desk-table .daily-button{width:100%}
  .desk-table .choices{margin-top:22px}
  .desk-props{width:min(100%,420px);height:auto;margin-top:27px}
  .desk-box{position:relative;width:100%;margin:0}
@@ -82,12 +82,11 @@
 /* The shelf follows the meadow without reserving a response row. */
 .collection-section{margin-top:2px;padding-top:14px}
 
-/* Long daily labels and backup text stay inside the small-screen dialog. */
-.daily-button #daily-label{min-width:0;overflow-wrap:anywhere;text-align:left}
+/* Backup text stays inside the small-screen dialog. */
 .backup-tools{padding-bottom:22px;margin-bottom:22px;border-bottom:1px solid var(--line)}
 .backup-tools h3{font-family:var(--serif);font-size:20px;font-weight:500;margin:0 0 10px;line-height:1.6}
 .backup-tools .actions>button{max-width:100%}
-#backup-dialog label{display:block;font-size:14px;margin:12px 0 8px}
+#backup-dialog label{display:block;font-size:var(--font-ui);margin:12px 0 8px}
 #backup-dialog textarea{min-height:180px;margin-bottom:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 #backup-output{font-family:var(--sans);font-size:14px}
 #backup-summary ul{padding-left:22px;font-size:14px;line-height:2}

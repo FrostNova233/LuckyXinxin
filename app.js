@@ -31,10 +31,17 @@
       return value;
     } catch { readProblems.add(key); return fallback; }
   }
+  // Explicit feedback tones keep success, errors and guidance independent of copy.
+  function setStatus(node, message = '', tone = 'info') {
+    if (!node) return;
+    node.textContent = message;
+    if (message) node.dataset.tone = tone;
+    else delete node.dataset.tone;
+  }
   function write(key, value, status) {
-    if (readProblems.has(key)) { if (status) status.textContent = readWarning; return false; }
+    if (readProblems.has(key)) { if (status) setStatus(status, readWarning, 'error'); return false; }
     try { localStorage.setItem(key, JSON.stringify(value)); return true; }
-    catch { if (status) status.textContent = '这次没能保存，可能是浏览器限制或空间不足。还没有存进瓶子里，写下的内容会为你保留。'; return false; }
+    catch { if (status) setStatus(status, '这次没能保存，可能是浏览器限制或空间不足。还没有存进瓶子里，写下的内容会为你保留。', 'error'); return false; }
   }
   const emptyLuckyProgress = () => ({ version: 2, misses: 0, daily: null });
   const isLegacyLuckyProgress = value => value && value.version === 1 &&
@@ -54,9 +61,9 @@
     // write, so reopening after a failed collection write cannot draw it again.
     if (dailyEntry && luckyProgress.daily?.day === dailyEntry.day) return { hit: isSpecial(luckyProgress.daily), entry: luckyProgress.daily, isNew: false };
     const percent = luckyProgress.misses >= 20 ? 100 : 5 + Math.max(0, luckyProgress.misses - 14) * 5;
-    const hit = Math.random() < percent / 100;
+    const hit = Boolean(luckyContent && Math.random() < percent / 100);
     const entry = dailyEntry ? { ...dailyEntry, ...(hit ? { messageId: luckyContent.id, text: luckyContent.text, special: 'super-lucky' } : {}) } : null;
-    luckyProgress = { version: 2, misses: hit ? 0 : luckyProgress.misses + 1, daily: entry || luckyProgress.daily };
+    luckyProgress = { version: 2, misses: luckyContent ? (hit ? 0 : luckyProgress.misses + 1) : luckyProgress.misses, daily: entry || luckyProgress.daily };
     luckyProgressPending = !write(keys.luckyProgress, luckyProgress);
     return { hit, entry, isNew: true };
   }
@@ -80,7 +87,7 @@
   const collectionUnreadable = () => giftsUnreadable() || readProblems.has(keys.vents) || readProblems.has(keys.drops);
   function saveGift(entry, status) {
     const latest = loadGifts(giftItems);
-    if (giftsUnreadable()) { status.textContent = readWarning; return false; }
+    if (giftsUnreadable()) { setStatus(status, readWarning, 'error'); return false; }
     const existing = latest.find(item => item.id === entry.id);
     if (existing) { giftItems = latest; if (entry.source === 'daily') current = existing; return true; }
     const next = [...latest, entry];
@@ -187,8 +194,8 @@
     heroScene(); renderShelf($('home-shelves'));
     document.querySelectorAll('[data-collection-group]').forEach(button => { button.setAttribute('aria-pressed', String(button.dataset.collectionGroup === menuGroup)); });
     if ($('collection-dialog').open) renderShelf($('collection-list'));
-    $('collection-status').textContent = collectionUnreadable() ? readWarning : '';
-    $('home-collection-status').textContent = $('collection-status').textContent;
+    setStatus($('collection-status'), collectionUnreadable() ? readWarning : '', 'error');
+    setStatus($('home-collection-status'), $('collection-status').textContent, 'error');
     if ($('bottle-dialog').open) renderBottle();
   }
   function renderBottle() {
@@ -214,14 +221,14 @@
       });
       list.append(button);
     });
-    $('bottle-status').textContent = (group === 'gift' ? giftsUnreadable() : readProblems.has(keys.vents)) || (group === 'self' && readProblems.has(keys.drops)) ? readWarning : '';
+    setStatus($('bottle-status'), (group === 'gift' ? giftsUnreadable() : readProblems.has(keys.vents)) || (group === 'self' && readProblems.has(keys.drops)) ? readWarning : '', 'error');
   }
   function renderPersonal() {
     $('personal-dialog-title').textContent = personal.kind === 'legacy' ? '以前留下的一滴' : '留给自己的一滴';
     $('personal-mascot').innerHTML = mascotSvg(personal.expression);
     $('personal-date').textContent = personal.kind === 'legacy' ? personal.at : Number.isFinite(Date.parse(personal.at)) ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'long' }).format(new Date(personal.at)) : '以前留下的';
     $('personal-text').textContent = personal.kind === 'legacy' ? '这滴小雨滴来自旧版的一次主动留下，没有附带文字。' : personal.text;
-    $('remove-confirm').hidden = true; $('personal-status').textContent = '';
+    $('remove-confirm').hidden = true; setStatus($('personal-status'), '');
   }
 
   function showDialog(id) {
@@ -235,13 +242,14 @@
       document.documentElement.style.setProperty('--page-scrollbar-gap', `${Math.max(0, innerWidth - document.documentElement.clientWidth)}px`);
     }
     returnFocus.set(dialog, document.activeElement); clearArtEffect();
+    dialog.querySelectorAll('.status,.quiet-storage-status').forEach(node => setStatus(node));
     dialog.classList.toggle('is-nested', dialogStack.length > 0);
     if (id === 'note-dialog') resetPicker();
-    if (id === 'collection-dialog') { renderShelf($('collection-list')); $('collection-status').textContent = collectionUnreadable() ? readWarning : ''; }
+    if (id === 'collection-dialog') { renderShelf($('collection-list')); setStatus($('collection-status'), collectionUnreadable() ? readWarning : '', 'error'); }
     if (id === 'bottle-dialog') renderBottle();
     if (id === 'personal-dialog') renderPersonal();
     if (id === 'future-dialog') renderLetters();
-    if (id === 'vent-dialog') $('vent-status').textContent = readProblems.has(keys.vents) ? readWarning : '';
+    if (id === 'vent-dialog') setStatus($('vent-status'), readProblems.has(keys.vents) ? readWarning : '', 'error');
     if (id === 'quiet-dialog') {
       const foreground = $('quiet-foreground');
       if (!foreground.hasAttribute('href')) foreground.setAttribute('href', foreground.dataset.src);
@@ -291,6 +299,7 @@
       // Ignore an old queued close event if this dialog was already reopened.
       if (dialog.open) { event.stopImmediatePropagation(); return; }
       clearDialogExit(dialog);
+      dialog.querySelectorAll('.status,.quiet-storage-status').forEach(node => setStatus(node));
       const index = dialogStack.indexOf(dialog); if (index !== -1) dialogStack.splice(index, 1);
       updateRain();
       const opener = returnFocus.get(dialog), top = dialogStack.at(-1);
@@ -329,7 +338,7 @@
   function updateDailyEntry() {
     const saved = !giftsUnreadable() && giftItems.some(item => item.id === `daily:${localDay()}`);
     $('daily-label').textContent = saved ? '看看今天留下的这一滴' : '接住今天这一滴';
-    $('daily-hint').textContent = saved ? '已经好好留在瓶子里了，随时可以再看看。' : '今天这一滴，接住就替你留在瓶子里。';
+    $('daily-hint').textContent = saved ? '已经好好留在瓶子里了，随时可以再看看。' : '今天有一句话留给你，喜欢就存进瓶子。';
   }
   function refreshDailyEntry() {
     giftItems = loadGifts(giftItems);
@@ -533,7 +542,7 @@
   function resetPicker() {
     stopLuckyCelebration(); $('note-reader').classList.remove('is-super-lucky'); $('lucky-date').hidden = true; $('lucky-date').textContent = '';
     cancelNoteReveal(); readerMode = 'random'; $('note-picker').hidden = false; $('note-reader').hidden = true; $('catch-panel').hidden = true;
-    $('note-dialog-title').textContent = copy.pickerTitle; $('note-status').textContent = messages.length ? '' : '这里暂时还没有小雨滴，先坐一会儿吧。'; $('note-text').textContent = ''; $('reader-mascot').replaceChildren();
+    $('note-dialog-title').textContent = copy.pickerTitle; setStatus($('note-status'), messages.length ? '' : '这里暂时还没有小雨滴，先坐一会儿吧。'); $('note-text').textContent = ''; $('reader-mascot').replaceChildren();
     const choices = [...faceIds];
     for (let i = choices.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [choices[i], choices[j]] = [choices[j], choices[i]]; }
     const picker = document.querySelector('.picker-scene'); picker.replaceChildren();
@@ -551,17 +560,15 @@
     if (document.hidden) {
       if (dailyEntry) { $('note-dialog').close(); return; }
       resetPicker();
-      $('note-status').textContent = '刚才先暂停了，回来后再接住也可以。'; return;
+      setStatus($('note-status'), '刚才先暂停了，回来后再接住也可以。'); return;
     }
     if (dailyEntry) {
       // Another tab may have collected today's drop while this animation ran.
       giftItems = loadGifts(giftItems);
       const existing = giftItems.find(item => item.id === dailyEntry.id);
-      const result = !existing && luckyContent ? drawLucky(dailyEntry) : null;
+      const result = !existing ? drawLucky(dailyEntry) : null;
       current = existing || result?.entry || dailyEntry;
-      const status = el('p'); const saved = saveGift(current, status);
       showNote(current, 'daily');
-      if (!saved) $('note-status').textContent = status.textContent;
       renderCollections();
       if (result?.isNew && isSpecial(current)) celebrateLucky();
     } else nextNote(expression);
@@ -572,7 +579,7 @@
     const version = ++noteVersion; pendingCatch = { expression, dailyEntry };
     $('note-dialog').setAttribute('aria-busy', 'true'); $('note-picker').hidden = true; $('note-reader').hidden = true; $('catch-panel').hidden = false;
     $('note-dialog-title').textContent = dailyEntry ? '接住今天这一滴' : '轻轻接住这一滴';
-    $('note-status').textContent = ''; $('catch-scene').innerHTML = art.catching(expression);
+    setStatus($('note-status'), ''); $('catch-scene').innerHTML = art.catching(expression);
     $('note-dialog').querySelector('.dialog-body').scrollTop = 0;
     if (reducedMotion.matches) completeCatch(version);
     else { $('catch-panel').classList.add('is-catching'); noteTimer = setTimeout(() => completeCatch(version), 1300); }
@@ -605,14 +612,13 @@
     $('reader-mascot').innerHTML = mascotSvg(entry?.expression || 'smile', false, isSpecial(entry));
     $('lucky-date').hidden = !isSpecial(entry);
     $('lucky-date').textContent = isSpecial(entry) ? `相遇于 ${entry.source === 'daily' ? entry.day : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(entry.at))}` : '';
-    $('note-status').textContent = ''; updateFavorite();
-    if (mode === 'daily' && giftItems.some(item => item.id === entry?.id)) $('note-status').textContent = isSpecial(entry) ? '超级幸运已放进瓶子里。✨' : '这一滴，已经替你留在瓶子里。';
+    setStatus($('note-status'), ''); updateFavorite();
+    if (mode === 'daily' && giftItems.some(item => item.id === entry?.id)) setStatus($('note-status'), isSpecial(entry) ? '超级幸运已放进瓶子里。✨' : '这一滴，已经留在瓶子里。', 'success');
   }
   function updateFavorite() {
     const saved = Boolean(current && giftItems.some(item => item.id === current.id));
-    $('save-note').hidden = readerMode !== 'random'; $('save-note').disabled = !current || saved; $('save-note').textContent = saved ? '已经在瓶子里' : '存下这一滴';
+    $('save-note').hidden = readerMode === 'bottle'; $('save-note').disabled = !current || saved; $('save-note').textContent = saved ? '已经在瓶子里' : '存下这一滴';
     $('next-note').hidden = readerMode !== 'random'; $('next-note').disabled = !messages.length;
-    $('go-random').hidden = readerMode !== 'daily'; $('retry-daily').hidden = readerMode !== 'daily' || !current || saved;
     $('reader-close').hidden = readerMode !== 'bottle'; $('remove-note').hidden = !saved || readerMode === 'daily';
   }
   function changeFavorite(remove = false) {
@@ -620,20 +626,18 @@
     const status = $('note-status');
     if (remove) {
       const latest = loadGifts(giftItems);
-      if (giftsUnreadable()) { status.textContent = readWarning; return; }
+      if (giftsUnreadable()) { setStatus(status, readWarning, 'error'); return; }
       const next = latest.filter(item => item.id !== current.id);
       if (!write(keys.gifts, { version: 2, items: next }, status)) return;
       giftItems = next; giftStoreExists = true;
     } else if (!saveGift(current, status)) return;
     updateFavorite(); renderCollections();
-    status.textContent = remove ? '这一滴已经取出，想念时还可以再接住。' : isSpecial(current) ? '超级幸运已放进瓶子里。✨' : '存好了，表情也一起留在瓶子里。💧';
+    setStatus(status, remove ? '这一滴已经取出，想念时还可以再接住。' : isSpecial(current) ? '超级幸运已放进瓶子里。✨' : '存好了，表情也一起留在瓶子里。💧', 'success');
     if (readerMode === 'random') (remove ? $('save-note') : $('next-note')).focus();
-    else if (readerMode === 'daily') $('go-random').focus();
+    else if (readerMode === 'daily') $('note-dialog').querySelector('.dialog-header [data-close]').focus();
     else if (remove) $('reader-close').focus();
   }
   $('next-note').addEventListener('click', () => { resetPicker(); document.querySelector('.pick-drop:not(:disabled)')?.focus(); });
-  $('go-random').addEventListener('click', () => { resetPicker(); document.querySelector('.pick-drop:not(:disabled)')?.focus(); });
-  $('retry-daily').addEventListener('click', () => { if (current && readerMode === 'daily') changeFavorite(); });
   $('note-dialog').addEventListener('close', resetPicker);
   $('save-note').addEventListener('click', () => changeFavorite()); $('remove-note').addEventListener('click', () => changeFavorite(true));
 
@@ -667,19 +671,19 @@
   }
   function resetVentResult() {
     finishDeparture(); submitting = false; $('vent-form').hidden = false; $('vent-result').hidden = true;
-    $('save-vent').checked = false; updateVentButton(); $('vent-status').textContent = '';
+    $('save-vent').checked = false; updateVentButton(); setStatus($('vent-status'), '');
   }
   $('throw-vent').addEventListener('click', () => {
     if (submitting) return;
     const input = $('vent-text'), text = input.value.trim(), keep = $('save-vent').checked;
-    if (!text) { $('vent-status').textContent = '什么都不说也可以，小雨滴就在这里陪你坐会儿。'; return; }
+    if (!text) { setStatus($('vent-status'), '什么都不说也可以，小雨滴就在这里陪你坐会儿。'); return; }
     if (keep) {
       vents = read(keys.vents, isVents, vents, []);
       const next = [...vents, { id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, text, at: new Date().toISOString(), expression: faceIds[Math.floor(Math.random() * faceIds.length)] }];
       if (!write(keys.vents, next, $('vent-status'))) return;
       vents = next;
     }
-    submitting = true; input.value = ''; $('save-vent').checked = false; updateVentButton(); $('vent-status').textContent = '';
+    submitting = true; input.value = ''; $('save-vent').checked = false; updateVentButton(); setStatus($('vent-status'), '');
     $('vent-form').hidden = true; $('vent-result').hidden = false;
     $('departure-scene').hidden = keep; $('saved-scene').hidden = !keep;
     $('vent-result-copy').textContent = keep ? '这一滴，已经放进“留给自己的”瓶子里。' : '小雨滴带着你的小情绪远行啦。';
@@ -777,8 +781,8 @@
       $('backup-summary').append(list, el('p', 'tiny', '重复记录会跳过，瓶子里原有的内容会保留。'));
       backupPreview = { existing, merged };
       $('backup-confirm').hidden = false;
-      $('backup-status').textContent = '已经检查好了，确认数量后就可以合并。';
-    } catch (error) { $('backup-status').textContent = error.message; }
+      setStatus($('backup-status'), '已经检查好了，确认数量后就可以合并。');
+    } catch (error) { setStatus($('backup-status'), error.message, 'error'); }
   }
   function reloadCollections() {
     giftItems = loadGifts(giftItems);
@@ -795,16 +799,16 @@
     try {
       const records = readBackupRecords();
       text = JSON.stringify({ format: backupFormat, version: 1, exportedAt: new Date().toISOString(), ...records }, null, 2);
-    } catch (error) { $('backup-status').textContent = error.message; return; }
-    $('backup-status').textContent = '正在复制……';
+    } catch (error) { setStatus($('backup-status'), error.message, 'error'); return; }
+    setStatus($('backup-status'), '正在复制……');
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
       await navigator.clipboard.writeText(text);
-      if (job === backupJob && $('backup-dialog').open) $('backup-status').textContent = '已复制，可以粘贴到备忘录保存。🌿';
+      if (job === backupJob && $('backup-dialog').open) setStatus($('backup-status'), '已复制，可以粘贴到备忘录保存。🌿', 'success');
     } catch {
       if (job !== backupJob || !$('backup-dialog').open) return;
       $('backup-output-panel').hidden = false; $('backup-output').value = text;
-      $('backup-status').textContent = '浏览器没能自动复制，请在下面全选文字，手动复制保存。';
+      setStatus($('backup-status'), '浏览器没能自动复制，请在下面全选文字，手动复制保存。', 'error');
       $('backup-output').focus(); $('backup-output').select();
     }
   });
@@ -815,16 +819,16 @@
     $('backup-input').focus();
   });
   $('backup-select').addEventListener('click', () => { $('backup-output').focus(); $('backup-output').select(); });
-  $('backup-input').addEventListener('input', () => { clearBackupPreview(); $('backup-status').textContent = ''; });
+  $('backup-input').addEventListener('input', () => { clearBackupPreview(); setStatus($('backup-status'), ''); });
   $('backup-check').addEventListener('click', previewBackup);
   $('backup-confirm').addEventListener('click', () => {
     if (!backupPreview) return;
     let existing;
     try { existing = readBackupRecords(); }
-    catch (error) { clearBackupPreview(); $('backup-status').textContent = error.message; return; }
+    catch (error) { clearBackupPreview(); setStatus($('backup-status'), error.message, 'error'); return; }
     if (JSON.stringify(existing) !== JSON.stringify(backupPreview.existing)) {
       previewBackup();
-      if (backupPreview) $('backup-status').textContent = '本地记录刚刚有变化，请核对更新后的数量，再点击合并。';
+      if (backupPreview) setStatus($('backup-status'), '本地记录刚刚有变化，请核对更新后的数量，再点击合并。');
       return;
     }
     const merged = backupPreview.merged;
@@ -835,7 +839,7 @@
     ].filter(([name]) => JSON.stringify(existing[name]) !== JSON.stringify(merged[name]));
     let operations;
     try { operations = changes.map(([, key, value]) => ({ key, before: localStorage.getItem(key), after: JSON.stringify(value) })); }
-    catch { clearBackupPreview(); $('backup-status').textContent = '暂时无法读取本地记录，已停止恢复。粘贴的备份仍为你保留。'; return; }
+    catch { clearBackupPreview(); setStatus($('backup-status'), '暂时无法读取本地记录，已停止恢复。粘贴的备份仍为你保留。', 'error'); return; }
     const attempted = [];
     try {
       for (const operation of operations) { attempted.push(operation); localStorage.setItem(operation.key, operation.after); }
@@ -853,16 +857,16 @@
         } catch { rolledBack = false; }
       }
       clearBackupPreview(); reloadCollections();
-      $('backup-status').textContent = rolledBack ? '这次没能恢复，已回滚本次写入。粘贴的备份仍为你保留，可以检查后重试。' : '恢复未完成，部分记录未能回滚。请保留这份备份，检查瓶子里的记录后重试。';
+      setStatus($('backup-status'), rolledBack ? '这次没能恢复，已回滚本次写入。粘贴的备份仍为你保留，可以检查后重试。' : '恢复未完成，部分记录未能回滚。请保留这份备份，检查瓶子里的记录后重试。', 'error');
       return;
     }
     const added = merged.gifts.length + merged.vents.length + merged.legacyDays.length - existing.gifts.length - existing.vents.length - existing.legacyDays.length;
     clearBackupPreview(); reloadCollections();
-    $('backup-status').textContent = added ? `合并好了，新留下 ${added} 滴小雨滴。💧` : '这些小雨滴都已经在瓶子里了，没有重复添加。';
+    setStatus($('backup-status'), added ? `合并好了，新留下 ${added} 滴小雨滴。💧` : '这些小雨滴都已经在瓶子里了，没有重复添加。', 'success');
   });
   $('backup-dialog').addEventListener('close', () => {
     backupJob++; clearBackupPreview();
-    $('backup-output').value = ''; $('backup-input').value = ''; $('backup-status').textContent = '';
+    $('backup-output').value = ''; $('backup-input').value = ''; setStatus($('backup-status'), '');
     $('backup-output-panel').hidden = true; $('backup-restore-panel').hidden = true;
   });
 
@@ -976,12 +980,12 @@
     $('toggle-rain').textContent = reducedMotion.matches ? quietCopy.reduced : stopped ? quietCopy.resume : quietCopy.pause;
     $('toggle-rain').setAttribute('aria-pressed', String(stopped));
     $('toggle-rain').disabled = reducedMotion.matches;
-    if (readProblems.has(keys.weather) || readProblems.has(keys.paused)) $('quiet-storage-status').textContent = quietCopy.temporary;
+    if (readProblems.has(keys.weather) || readProblems.has(keys.paused)) setStatus($('quiet-storage-status'), quietCopy.temporary, 'error');
   }
   function persistQuiet(key, value) {
-    if (readProblems.has(key)) { $('quiet-storage-status').textContent = quietCopy.temporary; return; }
-    try { localStorage.setItem(key, JSON.stringify(value)); $('quiet-storage-status').textContent = ''; }
-    catch { $('quiet-storage-status').textContent = quietCopy.temporary; }
+    if (readProblems.has(key)) { setStatus($('quiet-storage-status'), quietCopy.temporary, 'error'); return; }
+    try { localStorage.setItem(key, JSON.stringify(value)); setStatus($('quiet-storage-status'), ''); }
+    catch { setStatus($('quiet-storage-status'), quietCopy.temporary, 'error'); }
   }
   $('toggle-rain').addEventListener('click', () => {
     paused = !paused; updateRain();
